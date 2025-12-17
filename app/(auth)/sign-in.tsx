@@ -1,3 +1,4 @@
+import { useAuth } from '@/contexts/auth-context';
 import {
     Poppins_400Regular,
     Poppins_600SemiBold,
@@ -9,6 +10,8 @@ import { useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useCallback, useState } from 'react';
 import {
+    ActivityIndicator,
+    Alert,
     Platform,
     StatusBar,
     StyleSheet,
@@ -31,9 +34,11 @@ SplashScreen.preventAutoHideAsync();
 
 export default function SignInScreen() {
   const router = useRouter();
+  const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const [fontsLoaded, fontError] = useFonts({
     'Poppins-Regular': Poppins_400Regular,
@@ -51,10 +56,29 @@ export default function SignInScreen() {
     return null;
   }
 
-  const handleSignIn = (): void => {
-    console.log('Sign In:', { email, password });
-    // TODO: Implement sign in logic
-    // router.push('/(tabs)');
+  const handleSignIn = async (): Promise<void> => {
+    // Validation
+    if (!email || !password) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const result = await signIn(email, password);
+
+      if (result.error) {
+        Alert.alert('Login Failed', result.message || 'Invalid email or password');
+      } else {
+        // Navigate to home/tabs on success
+        router.replace('/(tabs)' as any);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'An unexpected error occurred');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleForgotPassword = (): void => {
@@ -152,11 +176,16 @@ export default function SignInScreen() {
 
             {/* Sign In Button */}
             <TouchableOpacity
-              style={styles.signInButton}
+              style={[styles.signInButton, loading && styles.signInButtonDisabled]}
               onPress={handleSignIn}
               activeOpacity={0.9}
+              disabled={loading}
             >
-              <Text style={styles.signInButtonText}>Sign In</Text>
+              {loading ? (
+                <ActivityIndicator color={COLORS.white} />
+              ) : (
+                <Text style={styles.signInButtonText}>Sign In</Text>
+              )}
             </TouchableOpacity>
 
             {/* Forgot Password */}
@@ -258,6 +287,9 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 17,
     fontFamily: 'Poppins-SemiBold',
+  },
+  signInButtonDisabled: {
+    opacity: 0.6,
   },
   forgotPasswordContainer: {
     alignItems: 'center',

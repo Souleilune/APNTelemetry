@@ -1,3 +1,4 @@
+import { useAuth } from '@/contexts/auth-context';
 import {
     Poppins_400Regular,
     Poppins_600SemiBold,
@@ -9,6 +10,8 @@ import { useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useCallback, useState } from 'react';
 import {
+    ActivityIndicator,
+    Alert,
     Platform,
     StatusBar,
     StyleSheet,
@@ -31,11 +34,13 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const { signUp } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const [fontsLoaded, fontError] = useFonts({
     'Poppins-Regular': Poppins_400Regular,
@@ -53,9 +58,47 @@ export default function RegisterScreen() {
     return null;
   }
 
-  const handleRegister = (): void => {
-    console.log('Register:', { email, password, confirmPassword });
-    // TODO: Implement registration logic
+  const handleRegister = async (): Promise<void> => {
+    // Validation
+    if (!email || !password || !confirmPassword) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert('Error', 'Passwords do not match');
+      return;
+    }
+
+    if (password.length < 6) {
+      Alert.alert('Error', 'Password must be at least 6 characters');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const result = await signUp(email, password);
+
+      if (result.error) {
+        Alert.alert('Registration Failed', result.message || 'Please try again');
+      } else {
+        Alert.alert(
+          'Success!',
+          'Registration successful! Please sign in.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.push('/(auth)/sign-in' as any),
+            },
+          ]
+        );
+      }
+    } catch (error) {
+      Alert.alert('Error', 'An unexpected error occurred');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSignInNavigation = (): void => {
@@ -183,11 +226,16 @@ export default function RegisterScreen() {
 
             {/* Sign In Button */}
             <TouchableOpacity
-              style={styles.signInButton}
+              style={[styles.signInButton, loading && styles.signInButtonDisabled]}
               onPress={handleRegister}
               activeOpacity={0.9}
+              disabled={loading}
             >
-              <Text style={styles.signInButtonText}>Register</Text>
+              {loading ? (
+                <ActivityIndicator color={COLORS.white} />
+              ) : (
+                <Text style={styles.signInButtonText}>Register</Text>
+              )}
             </TouchableOpacity>
 
             {/* Already have account */}
@@ -294,6 +342,9 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 17,
     fontFamily: 'Poppins-SemiBold',
+  },
+  signInButtonDisabled: {
+    opacity: 0.6,
   },
   footer: {
     flexDirection: 'row',
