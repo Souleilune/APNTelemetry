@@ -1,23 +1,24 @@
 import {
-    Poppins_400Regular,
-    Poppins_600SemiBold,
-    Poppins_700Bold,
-    useFonts,
+  Poppins_400Regular,
+  Poppins_600SemiBold,
+  Poppins_700Bold,
+  useFonts,
 } from '@expo-google-fonts/poppins';
+import { useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useCallback } from 'react';
 import {
-    Dimensions,
-    Platform,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Dimensions,
+  Platform,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const { width, height } = Dimensions.get('window');
+const { height } = Dimensions.get('window');
 
 // Color palette - using single orange color for consistency
 const COLORS = {
@@ -32,6 +33,8 @@ const COLORS = {
 SplashScreen.preventAutoHideAsync();
 
 export default function WelcomeScreen() {
+  const router = useRouter(); // ADD THIS LINE
+  
   const [fontsLoaded, fontError] = useFonts({
     'Poppins-Regular': Poppins_400Regular,
     'Poppins-SemiBold': Poppins_600SemiBold,
@@ -48,8 +51,9 @@ export default function WelcomeScreen() {
     return null;
   }
 
+  // Navigate to register screen
   const handleContinue = (): void => {
-    console.log('Continue button pressed');
+    router.replace('/(auth)/register' as any);
   };
 
   return (
