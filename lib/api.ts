@@ -39,10 +39,11 @@ interface ApiResponse<T = unknown> {
 }
 
 class ApiClient {
-  private baseURL: string;
+  private baseURL: string;  
 
   constructor() {
     this.baseURL = API_URL;
+    console.log('API Base URL:', this.baseURL);
   }
 
   // Helper method to get stored token
@@ -203,3 +204,4 @@ class ApiClient {
 
 export const api = new ApiClient();
 export type { ApiResponse, AuthResponse, LoginData, RegisterData, Session };
+
