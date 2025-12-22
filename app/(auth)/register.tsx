@@ -155,10 +155,9 @@ export default function RegisterScreen() {
                 placeholder="Email"
                 placeholderTextColor={COLORS.textGray}
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(text) => setEmail(text)}
                 keyboardType="email-address"
                 autoCapitalize="none"
-                autoComplete="email"
               />
             </View>
 
@@ -175,10 +174,9 @@ export default function RegisterScreen() {
                 placeholder="Password"
                 placeholderTextColor={COLORS.textGray}
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(text) => setPassword(text)}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
-                autoComplete="password"
               />
               <TouchableOpacity
                 onPress={() => setShowPassword(!showPassword)}
@@ -206,10 +204,9 @@ export default function RegisterScreen() {
                 placeholder="Confirm Password"
                 placeholderTextColor={COLORS.textGray}
                 value={confirmPassword}
-                onChangeText={setConfirmPassword}
+                onChangeText={(text) => setConfirmPassword(text)}
                 secureTextEntry={!showConfirmPassword}
                 autoCapitalize="none"
-                autoComplete="password"
               />
               <TouchableOpacity
                 onPress={() => setShowConfirmPassword(!showConfirmPassword)}

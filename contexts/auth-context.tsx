@@ -15,6 +15,8 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error?: string; message?: string }>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  updateProfile: (fullName: string) => Promise<{ error?: string; message?: string }>;
+  changePassword: (oldPassword: string, newPassword: string) => Promise<{ error?: string; message?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -118,6 +120,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateProfile = async (fullName: string) => {
+    try {
+      const response = await api.updateProfile(fullName);
+
+      if (response.error) {
+        return {
+          error: response.error,
+          message: response.message || 'Profile update failed'
+        };
+      }
+
+      // Update local user state
+      if (response.data?.user) {
+        setUser(response.data.user);
+      }
+
+      return { message: 'Profile updated successfully!' };
+    } catch (error) {
+      return {
+        error: 'Update error',
+        message: error instanceof Error ? error.message : 'An error occurred'
+      };
+    }
+  };
+
+  const changePassword = async (oldPassword: string, newPassword: string) => {
+    try {
+      const response = await api.changePassword(oldPassword, newPassword);
+
+      if (response.error) {
+        return {
+          error: response.error,
+          message: response.message || 'Password change failed'
+        };
+      }
+
+      return { message: 'Password changed successfully!' };
+    } catch (error) {
+      return {
+        error: 'Password change error',
+        message: error instanceof Error ? error.message : 'An error occurred'
+      };
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -127,6 +174,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signIn,
         signOut,
         refreshUser,
+        updateProfile,
+        changePassword,
       }}
     >
       {children}

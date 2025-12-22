@@ -136,10 +136,9 @@ export default function SignInScreen() {
                 placeholder="Email"
                 placeholderTextColor={COLORS.textGray}
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(text) => setEmail(text)}
                 keyboardType="email-address"
                 autoCapitalize="none"
-                autoComplete="email"
               />
             </View>
 
@@ -156,10 +155,9 @@ export default function SignInScreen() {
                 placeholder="Password"
                 placeholderTextColor={COLORS.textGray}
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(text) => setPassword(text)}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
-                autoComplete="password"
               />
               <TouchableOpacity
                 onPress={() => setShowPassword(!showPassword)}

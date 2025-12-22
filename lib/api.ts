@@ -200,6 +200,22 @@ class ApiClient {
     const token = await this.getToken();
     return !!token;
   }
+
+  // Change password
+  async changePassword(oldPassword: string, newPassword: string): Promise<ApiResponse<{ message: string }>> {
+    return this.request<{ message: string }>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ oldPassword, newPassword }),
+    });
+  }
+
+  // Update user profile
+  async updateProfile(fullName: string): Promise<ApiResponse<{ user: AuthResponse['user']; message: string }>> {
+    return this.request<{ user: AuthResponse['user']; message: string }>('/api/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ fullName }),
+    });
+  }
 }
 
 export const api = new ApiClient();
