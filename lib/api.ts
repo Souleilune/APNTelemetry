@@ -38,6 +38,44 @@ interface ApiResponse<T = unknown> {
   message?: string;
 }
 
+// Device interface
+export interface Device {
+  id: string;
+  deviceId: string;
+  name?: string;
+  pairedAt: string;
+  isActive: boolean;
+}
+
+// Alert interface
+export interface Alert {
+  id: string;
+  deviceId: string;
+  alertType: string;
+  sensor?: string;
+  value?: number;
+  isActive: boolean;
+  receivedAt: string;
+  clearedAt?: string;
+}
+
+// SensorReading interface
+export interface SensorReading {
+  id: string;
+  deviceId: string;
+  water: [number | null, number | null, number | null, number | null];
+  gas: boolean;
+  temperature: {
+    temp1: number | null;
+    temp2: number | null;
+  };
+  gyro: {
+    movement: number | null;
+  };
+  power: string | null;
+  receivedAt: string;
+}
+
 class ApiClient {
   private baseURL: string;  
 
@@ -201,23 +239,54 @@ class ApiClient {
     return !!token;
   }
 
-  // Change password
-  async changePassword(oldPassword: string, newPassword: string): Promise<ApiResponse<{ message: string }>> {
-    return this.request<{ message: string }>('/api/auth/change-password', {
-      method: 'POST',
-      body: JSON.stringify({ oldPassword, newPassword }),
+  // Telemetry endpoints
+  async getActiveAlerts(): Promise<ApiResponse<{ alerts: Alert[] }>> {
+    return this.request<{ alerts: Alert[] }>('/api/telemetry/alerts/active', {
+      method: 'GET',
     });
   }
 
-  // Update user profile
-  async updateProfile(fullName: string): Promise<ApiResponse<{ user: AuthResponse['user']; message: string }>> {
-    return this.request<{ user: AuthResponse['user']; message: string }>('/api/auth/profile', {
-      method: 'PUT',
-      body: JSON.stringify({ fullName }),
+  async getAllAlerts(limit: number = 100): Promise<ApiResponse<{ alerts: Alert[]; pagination?: any }>> {
+    return this.request<{ alerts: Alert[]; pagination?: any }>(`/api/telemetry/alerts?limit=${limit}`, {
+      method: 'GET',
+    });
+  }
+
+  async getDevices(): Promise<ApiResponse<{ devices: Device[] }>> {
+    return this.request<{ devices: Device[] }>('/api/telemetry/devices', {
+      method: 'GET',
+    });
+  }
+
+  async getLatestSensorReading(deviceId?: string): Promise<ApiResponse<{ reading: SensorReading | null }>> {
+    const url = deviceId 
+      ? `/api/telemetry/sensors/latest?deviceId=${encodeURIComponent(deviceId)}`
+      : '/api/telemetry/sensors/latest';
+    return this.request<{ reading: SensorReading | null }>(url, {
+      method: 'GET',
+    });
+  }
+
+  async getSensorReadings(params?: {
+    limit?: number;
+    offset?: number;
+    deviceId?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<ApiResponse<{ readings: SensorReading[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>> {
+    const queryParams = new URLSearchParams();
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.offset) queryParams.append('offset', params.offset.toString());
+    if (params?.deviceId) queryParams.append('deviceId', params.deviceId);
+    if (params?.startDate) queryParams.append('startDate', params.startDate);
+    if (params?.endDate) queryParams.append('endDate', params.endDate);
+
+    const url = `/api/telemetry/sensors${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+    return this.request<{ readings: SensorReading[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>(url, {
+      method: 'GET',
     });
   }
 }
 
 export const api = new ApiClient();
-export type { ApiResponse, AuthResponse, LoginData, RegisterData, Session };
 
