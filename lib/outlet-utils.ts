@@ -45,10 +45,16 @@ export function splitSensorDataByOutlet(
     return [emptyOutlet(1), emptyOutlet(2)];
   }
 
+  // Water detection is now zone-based: water[0] and water[1] both represent Zone 1,
+  // water[2] and water[3] both represent Zone 2 (they have the same value per zone)
+  // Convert to boolean: 1 = detected, 0 = not detected
+  const zone1Detected = reading.water[0] === 1 || reading.water[1] === 1;
+  const zone2Detected = reading.water[2] === 1 || reading.water[3] === 1;
+
   const outlet1: OutletData = {
     outletNumber: 1,
     deviceId: reading.deviceId,
-    waterSensors: [reading.water[0] ?? null, reading.water[1] ?? null],
+    waterSensors: zone1Detected ? [1, 1] : [0, 0], // Zone 1 detection (boolean as 0/1 for compatibility)
     temperature: reading.temperature.temp1 ?? null,
     movement: reading.gyro.movement ?? null,
     gas: reading.gas,
@@ -60,7 +66,7 @@ export function splitSensorDataByOutlet(
   const outlet2: OutletData = {
     outletNumber: 2,
     deviceId: reading.deviceId,
-    waterSensors: [reading.water[2] ?? null, reading.water[3] ?? null],
+    waterSensors: zone2Detected ? [1, 1] : [0, 0], // Zone 2 detection (boolean as 0/1 for compatibility)
     temperature: reading.temperature.temp2 ?? null,
     movement: reading.gyro.movement ?? null,
     gas: reading.gas,
@@ -73,12 +79,13 @@ export function splitSensorDataByOutlet(
 }
 
 /**
- * Gets the status of water sensors
- * @param waterSensors - Array of 2 water sensor values
+ * Gets the status of water sensors (zone-based detection)
+ * @param waterSensors - Array of 2 water sensor values (both represent the same zone, 1 = detected, 0 = not detected)
  * @returns Status object with status text and color
  */
 export function getWaterStatus(waterSensors: [number | null, number | null]): StatusResult {
-  const hasWater = waterSensors.some(val => val !== null && val > 0);
+  // Since both values in the array represent the same zone, check if either is 1 (detected)
+  const hasWater = waterSensors.some(val => val !== null && val === 1);
   
   if (hasWater) {
     return {
@@ -87,6 +94,7 @@ export function getWaterStatus(waterSensors: [number | null, number | null]): St
     };
   }
 
+  // If we have readings (values are not null), water is not detected
   const hasReadings = waterSensors.some(val => val !== null);
   if (hasReadings) {
     return {

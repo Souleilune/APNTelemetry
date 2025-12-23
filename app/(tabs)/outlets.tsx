@@ -148,6 +148,32 @@ export default function OutletsScreen() {
     }));
   };
 
+  const formatWaterValue = (value: number | null | undefined): string => {
+    // Handle null/undefined
+    if (value === null || value === undefined) {
+      return 'N/A';
+    }
+    
+    // Convert to number and check
+    const numValue = typeof value === 'number' ? value : Number(value);
+    
+    // Check for NaN
+    if (isNaN(numValue)) {
+      return 'N/A';
+    }
+    
+    // Return text based on value - use strict equality
+    if (numValue === 1) {
+      return 'Wet';
+    }
+    if (numValue === 0) {
+      return 'Dry';
+    }
+    
+    // Fallback for any other value
+    return 'N/A';
+  };
+
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleString([], {
@@ -228,10 +254,10 @@ export default function OutletsScreen() {
                       <Ionicons name="water" size={20} color="#2196F3" />
                     </View>
                     <View style={styles.sensorInfo}>
-                      <Text style={styles.sensorLabel}>Water Sensors (2)</Text>
+                      <Text style={styles.sensorLabel}>Water Detection - Zone {outlet.outletNumber}</Text>
                       {!isExpanded && (
                         <Text style={styles.sensorValue}>
-                          {outlet.waterSensors.filter(v => v !== null).join(', ') || 'N/A'}
+                          {formatWaterValue(outlet.waterSensors[0])}
                         </Text>
                       )}
                     </View>
@@ -253,15 +279,18 @@ export default function OutletsScreen() {
                 {isExpanded && (
                   <View style={styles.accordionContent}>
                     <View style={styles.subSensorRow}>
-                      <Text style={styles.subSensorLabel}>Sensor {outlet.outletNumber === 1 ? '1' : '3'}:</Text>
+                      <Text style={styles.subSensorLabel}>Zone {outlet.outletNumber} Status:</Text>
                       <Text style={styles.subSensorValue}>
-                        {outlet.waterSensors[0] !== null ? outlet.waterSensors[0] : 'N/A'}
+                        {(() => {
+                          const waterValue = outlet.waterSensors[0];
+                          return formatWaterValue(waterValue);
+                        })()}
                       </Text>
                     </View>
                     <View style={styles.subSensorRow}>
-                      <Text style={styles.subSensorLabel}>Sensor {outlet.outletNumber === 1 ? '2' : '4'}:</Text>
+                      <Text style={styles.subSensorLabel}>Sensors:</Text>
                       <Text style={styles.subSensorValue}>
-                        {outlet.waterSensors[1] !== null ? outlet.waterSensors[1] : 'N/A'}
+                        {outlet.outletNumber === 1 ? '1 & 2' : '3 & 4'}
                       </Text>
                     </View>
                   </View>

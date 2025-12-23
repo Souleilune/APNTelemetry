@@ -324,7 +324,12 @@ export default function HomeScreen() {
                                         </View>
                                       )}
                                     </View>
-                                    {alert.value !== null && alert.value !== undefined && (
+                                    {alert.alertType === 'WATER_DETECTED' && alert.sensor && (
+                                      <Text style={styles.alertValue}>
+                                        {alert.sensor.startsWith('ZONE') ? alert.sensor.replace('ZONE', 'Zone ') : alert.sensor}
+                                      </Text>
+                                    )}
+                                    {alert.value !== null && alert.value !== undefined && alert.alertType !== 'WATER_DETECTED' && (
                                       <Text style={styles.alertValue}>
                                         Value: {typeof alert.value === 'number' ? alert.value.toFixed(2) : alert.value}
                                       </Text>

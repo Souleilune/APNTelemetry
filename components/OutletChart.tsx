@@ -51,12 +51,11 @@ export function OutletChart({ outletNumber, deviceId, readings, loading }: Outle
     return labels.filter((_, i) => i % step === 0);
   };
 
-  // Prepare data for charts
+  // Prepare data for charts - now zone-based detection (boolean: 0 or 1)
   const prepareWaterData = () => {
     const recentReadings = readings.slice(0, 30).reverse();
     const labels: string[] = [];
-    const sensor1Data: number[] = [];
-    const sensor2Data: number[] = [];
+    const zoneData: number[] = []; // Single dataset for zone detection (0 or 1)
 
     recentReadings.forEach((reading, index) => {
       const date = new Date(reading.receivedAt);
@@ -66,12 +65,14 @@ export function OutletChart({ outletNumber, deviceId, readings, loading }: Outle
         : `${date.getMonth() + 1}/${date.getDate()}`;
       labels.push(label);
 
+      // Water detection is zone-based: both sensors in a zone have the same value (0 or 1)
+      // Zone 1: water[0] and water[1], Zone 2: water[2] and water[3]
       if (outletNumber === 1) {
-        sensor1Data.push(reading.water[0] || 0);
-        sensor2Data.push(reading.water[1] || 0);
+        // Zone 1 detection (use first value, both are the same)
+        zoneData.push(reading.water[0] === 1 ? 1 : 0);
       } else {
-        sensor1Data.push(reading.water[2] || 0);
-        sensor2Data.push(reading.water[3] || 0);
+        // Zone 2 detection (use first value of zone 2, both are the same)
+        zoneData.push(reading.water[2] === 1 ? 1 : 0);
       }
     });
 
@@ -79,13 +80,8 @@ export function OutletChart({ outletNumber, deviceId, readings, loading }: Outle
       labels: formatLabels(labels),
       datasets: [
         {
-          data: sensor1Data,
-          color: (opacity = 1) => `rgba(33, 150, 243, ${opacity})`, // Blue for sensor 1
-          strokeWidth: 2,
-        },
-        {
-          data: sensor2Data,
-          color: (opacity = 1) => `rgba(21, 101, 192, ${opacity})`, // Darker blue for sensor 2
+          data: zoneData,
+          color: (opacity = 1) => `rgba(33, 150, 243, ${opacity})`, // Blue for water detection
           strokeWidth: 2,
         },
       ],
@@ -137,7 +133,7 @@ export function OutletChart({ outletNumber, deviceId, readings, loading }: Outle
   const getChartTitle = () => {
     switch (selectedChart) {
       case 'water':
-        return `Water Sensors ${outletNumber === 1 ? '1 & 2' : '3 & 4'}`;
+        return `Water Detection - Zone ${outletNumber}`;
       case 'temperature':
         return `Temperature (Sensor ${outletNumber})`;
       default:
@@ -162,7 +158,7 @@ export function OutletChart({ outletNumber, deviceId, readings, loading }: Outle
     backgroundColor: '#FFFFFF',
     backgroundGradientFrom: '#FFFFFF',
     backgroundGradientTo: '#FFFFFF',
-    decimalPlaces: 1,
+    decimalPlaces: selectedChart === 'water' ? 0 : 1, // Water is boolean (0 or 1), temperature has decimals
     color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
     labelColor: (opacity = 1) => `rgba(102, 102, 102, ${opacity})`,
     style: {
@@ -238,11 +234,7 @@ export function OutletChart({ outletNumber, deviceId, readings, loading }: Outle
         <View style={styles.legend}>
           <View style={styles.legendItem}>
             <View style={[styles.legendDot, { backgroundColor: '#2196F3' }]} />
-            <Text style={styles.legendText}>Sensor {outletNumber === 1 ? '1' : '3'}</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#1565C0' }]} />
-            <Text style={styles.legendText}>Sensor {outletNumber === 1 ? '2' : '4'}</Text>
+            <Text style={styles.legendText}>Zone {outletNumber} Detection</Text>
           </View>
         </View>
       )}
