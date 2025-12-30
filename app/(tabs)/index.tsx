@@ -1,7 +1,9 @@
 import { useAuth } from '@/contexts/auth-context';
-import { api, Alert, Device } from '@/lib/api';
+import { api, Alert, Device, SensorReading } from '@/lib/api';
 import { OverallAnalytics } from '@/components/OverallAnalytics';
+import { OutletModal } from '@/components/OutletModal';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { splitSensorDataByOutlet, OutletData } from '@/lib/outlet-utils';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -39,6 +41,21 @@ const ALERT_CONFIG: Record<string, { icon: keyof typeof Ionicons.glyphMap; color
   'MULTIPLE_HAZARDS': { icon: 'alert-circle', color: '#F44336', label: 'Multiple Hazards' },
 };
 
+// Alert priority levels (higher number = higher priority)
+const ALERT_PRIORITY: Record<string, number> = {
+  'GAS_LEAK_DETECTED': 3,      // High priority - critical safety issue
+  'MULTIPLE_HAZARDS': 3,       // High priority - multiple issues
+  'POWER_ABNORMAL': 2,         // Medium priority
+  'GROUND_MOVEMENT_DETECTED': 1, // Low priority
+  'WATER_DETECTED': 0,         // Filtered out but defined for completeness
+  'HIGH_TEMPERATURE': 0,       // Filtered out but defined for completeness
+};
+
+// Get alert priority (defaults to 0 if not found)
+const getAlertPriority = (alertType: string): number => {
+  return ALERT_PRIORITY[alertType] ?? 0;
+};
+
 export default function HomeScreen() {
   const { user } = useAuth();
   const { isConnected: wsConnected, sendCommand: wsSendCommand } = useWebSocket();
@@ -49,12 +66,17 @@ export default function HomeScreen() {
   const [commandLoading, setCommandLoading] = useState<string | null>(null);
   const [isAlertsCollapsed, setIsAlertsCollapsed] = useState(true); // Collapsed by default
   const [alertFilter, setAlertFilter] = useState<'all' | 'active' | string>('all');
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedOutlet, setSelectedOutlet] = useState<1 | 2>(1);
+  const [sensorReading, setSensorReading] = useState<SensorReading | null>(null);
+  const [outletsData, setOutletsData] = useState<[OutletData, OutletData] | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
-      const [alertsRes, devicesRes] = await Promise.all([
+      const [alertsRes, devicesRes, sensorRes] = await Promise.all([
         api.getAllAlerts(100), // Get all alerts (up to 100)
         api.getDevices(),
+        api.getLatestSensorReading(),
       ]);
 
       if (alertsRes.data) {
@@ -63,6 +85,12 @@ export default function HomeScreen() {
       }
       if (devicesRes.data) {
         setDevices(devicesRes.data.devices);
+      }
+      if (sensorRes.data?.reading) {
+        setSensorReading(sensorRes.data.reading);
+        // Split sensor data by outlet (assuming breakers are both ON by default)
+        const outletData = splitSensorDataByOutlet(sensorRes.data.reading, true, true);
+        setOutletsData(outletData);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -132,6 +160,15 @@ export default function HomeScreen() {
   const isConnected = devices.length > 0;
   const hasAlerts = alerts.length > 0;
 
+  const handleOutletPress = (outletNumber: 1 | 2) => {
+    setSelectedOutlet(outletNumber);
+    setModalVisible(true);
+  };
+
+  const handleCloseModal = () => {
+    setModalVisible(false);
+  };
+
   return (
     <View style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -156,7 +193,11 @@ export default function HomeScreen() {
         >
           {/* Outlet Cards Section */}
           <View style={styles.outletsSection}>
-            <View style={styles.outletCard}>
+            <TouchableOpacity
+              style={styles.outletCard}
+              onPress={() => handleOutletPress(1)}
+              activeOpacity={0.7}
+            >
               <Text style={styles.outletLabel}>Outlet 1</Text>
               <View style={[styles.outletIconPlaceholder, !isConnected && styles.outletDisabled]}>
                 <View style={styles.outletFace}>
@@ -167,9 +208,13 @@ export default function HomeScreen() {
                   <View style={styles.mouth} />
                 </View>
               </View>
-            </View>
+            </TouchableOpacity>
 
-            <View style={styles.outletCard}>
+            <TouchableOpacity
+              style={styles.outletCard}
+              onPress={() => handleOutletPress(2)}
+              activeOpacity={0.7}
+            >
               <Text style={styles.outletLabel}>Outlet 2</Text>
               <View style={[styles.outletIconPlaceholder, !isConnected && styles.outletDisabled]}>
                 <View style={styles.outletFace}>
@@ -180,7 +225,7 @@ export default function HomeScreen() {
                   <View style={styles.mouth} />
                 </View>
               </View>
-            </View>
+            </TouchableOpacity>
           </View>
 
           {/* Overall Analytics Section */}
@@ -296,11 +341,45 @@ export default function HomeScreen() {
                           filteredAlerts = filteredAlerts.filter(a => a.alertType === alertFilter);
                         }
 
-                        // Show limited alerts when collapsed, all when expanded
-                        const alertsToShow = isAlertsCollapsed 
-                          ? filteredAlerts.slice(0, 5) 
-                          : filteredAlerts;
-                        const hasMoreAlerts = filteredAlerts.length > 5;
+                        // Sort by priority (descending), then by receivedAt (descending)
+                        filteredAlerts.sort((a, b) => {
+                          const priorityA = getAlertPriority(a.alertType);
+                          const priorityB = getAlertPriority(b.alertType);
+                          
+                          // First sort by priority (higher priority first)
+                          if (priorityA !== priorityB) {
+                            return priorityB - priorityA;
+                          }
+                          
+                          // If same priority, sort by receivedAt (most recent first)
+                          return new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime();
+                        });
+
+                        // Smart collapsed view: ensure high-priority alerts are shown
+                        let alertsToShow: Alert[];
+                        if (isAlertsCollapsed) {
+                          const highPriorityAlerts = filteredAlerts.filter(a => getAlertPriority(a.alertType) >= 3);
+                          const otherAlerts = filteredAlerts.filter(a => getAlertPriority(a.alertType) < 3);
+                          
+                          // If there are high-priority alerts, include at least one
+                          if (highPriorityAlerts.length > 0) {
+                            // Take up to 4 high-priority alerts, then fill remaining slots with other alerts
+                            const highPriorityCount = Math.min(4, highPriorityAlerts.length);
+                            const remainingSlots = 5 - highPriorityCount;
+                            alertsToShow = [
+                              ...highPriorityAlerts.slice(0, highPriorityCount),
+                              ...otherAlerts.slice(0, remainingSlots)
+                            ];
+                          } else {
+                            // No high-priority alerts, just take first 5
+                            alertsToShow = filteredAlerts.slice(0, 5);
+                          }
+                        } else {
+                          // Expanded view: show all alerts
+                          alertsToShow = filteredAlerts;
+                        }
+                        
+                        const hasMoreAlerts = filteredAlerts.length > alertsToShow.length;
 
                         return (
                           <>
@@ -351,7 +430,7 @@ export default function HomeScreen() {
                                 activeOpacity={0.7}
                               >
                                 <Text style={styles.moreAlerts}>
-                                  +{filteredAlerts.length - 5} more alerts
+                                  +{filteredAlerts.length - alertsToShow.length} more alerts
                                 </Text>
                                 <Ionicons name="chevron-down" size={16} color={COLORS.primary} />
                               </TouchableOpacity>
@@ -450,6 +529,14 @@ export default function HomeScreen() {
           </View>
         </ScrollView>
       </SafeAreaView>
+
+      {/* Outlet Modal */}
+      <OutletModal
+        visible={modalVisible}
+        outletNumber={selectedOutlet}
+        onClose={handleCloseModal}
+        initialOutletData={outletsData ? outletsData[selectedOutlet - 1] : null}
+      />
     </View>
   );
 }
