@@ -4,8 +4,10 @@ import { OverallAnalytics } from '@/components/OverallAnalytics';
 import { OutletModal } from '@/components/OutletModal';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { splitSensorDataByOutlet, OutletData } from '@/lib/outlet-utils';
+import { notificationService } from '@/services/notifications';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
+import * as Notifications from 'expo-notifications';
 import {
   ActivityIndicator,
   Platform,
@@ -107,6 +109,30 @@ export default function HomeScreen() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
+  // Handle notification taps - expand alerts section and filter if needed
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data;
+      
+      // Expand alerts section
+      setIsAlertsCollapsed(false);
+      
+      // If alert type is specified, filter to that type
+      if (data?.alertType) {
+        setAlertFilter(data.alertType);
+      } else {
+        setAlertFilter('all');
+      }
+      
+      // Refresh alerts to ensure latest data is shown
+      fetchData();
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [fetchData]);
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     fetchData();
@@ -167,6 +193,26 @@ export default function HomeScreen() {
 
   const handleCloseModal = () => {
     setModalVisible(false);
+  };
+
+  const testNotification = async () => {
+    try {
+      // Create a test alert notification
+      const testAlert = {
+        id: 'test-' + Date.now(),
+        deviceId: devices.length > 0 ? devices[0].deviceId : 'TEST_DEVICE',
+        alertType: 'GAS_LEAK_DETECTED',
+        sensor: 'GAS_SENSOR',
+        value: 1,
+        receivedAt: new Date().toISOString(),
+      };
+
+      await notificationService.sendLocalNotification(testAlert);
+      console.log('✅ Test notification sent');
+    } catch (error) {
+      console.error('❌ Error sending test notification:', error);
+      alert('Failed to send test notification. Check console for details.');
+    }
   };
 
   return (
@@ -527,6 +573,24 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Test Notification Section */}
+          <View style={styles.testSection}>
+            <Text style={styles.sectionTitle}>Test Notifications:</Text>
+            <TouchableOpacity 
+              style={styles.testButton}
+              onPress={testNotification}
+              activeOpacity={0.7}
+            >
+              <View style={styles.testButtonContent}>
+                <Ionicons name="notifications" size={24} color={COLORS.white} />
+                <Text style={styles.testButtonText}>Test Notification</Text>
+              </View>
+            </TouchableOpacity>
+            <Text style={styles.testHint}>
+              Tap to test local notification (works in Expo Go)
+            </Text>
+          </View>
         </ScrollView>
       </SafeAreaView>
 
@@ -860,5 +924,42 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     opacity: 0.5,
+  },
+  testSection: {
+    marginBottom: 24,
+  },
+  testButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: COLORS.shadow,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
+  },
+  testButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  testButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.white,
+  },
+  testHint: {
+    fontSize: 12,
+    color: COLORS.textLight,
+    textAlign: 'center',
+    marginTop: 8,
+    fontStyle: 'italic',
   },
 });

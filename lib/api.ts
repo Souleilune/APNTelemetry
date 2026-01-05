@@ -286,6 +286,24 @@ class ApiClient {
       method: 'GET',
     });
   }
+
+  // Notification endpoints
+  async registerPushToken(expoPushToken: string, platform?: string, deviceId?: string | null): Promise<ApiResponse<{ success: boolean }>> {
+    return this.request<{ success: boolean }>('/api/notifications/register', {
+      method: 'POST',
+      body: JSON.stringify({ 
+        expoPushToken,
+        platform,
+        deviceId,
+      }),
+    });
+  }
+
+  async unregisterPushToken(): Promise<ApiResponse<{ success: boolean }>> {
+    return this.request<{ success: boolean }>('/api/notifications/unregister', {
+      method: 'DELETE',
+    });
+  }
 }
 
 export const api = new ApiClient();

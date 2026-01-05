@@ -39,8 +39,22 @@
           }
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#FF8C42",
+          "sounds": []
+        }
+      ]
     ],
+    "notification": {
+      "icon": "./assets/images/icon.png",
+      "color": "#FF8C42",
+      "androidMode": "default",
+      "iosDisplayInForeground": true
+    },
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

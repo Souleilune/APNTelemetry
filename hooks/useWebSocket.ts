@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
+import { notificationService } from '@/services/notifications';
 
 const TOKEN_KEY = 'auth_token';
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
@@ -74,7 +75,7 @@ export function useWebSocket() {
           }
         };
 
-        websocket.onmessage = (event) => {
+        websocket.onmessage = async (event) => {
           try {
             const message = JSON.parse(event.data);
             console.log('📨 WebSocket message received:', message);
@@ -84,6 +85,27 @@ export function useWebSocket() {
               console.log('✅ WebSocket: Server confirmed connection');
             } else if (message.type === 'telemetry') {
               console.log('📊 WebSocket: Telemetry data received');
+              
+              // Check if this is an alert message and trigger notification
+              const telemetryData = message.data;
+              if (telemetryData && telemetryData.messageType === 'alert') {
+                const alertPayload = telemetryData.payload;
+                if (alertPayload && alertPayload.alert) {
+                  // Format alert data for notification
+                  const alertData = {
+                    id: telemetryData.deviceId + '_' + Date.now(), // Temporary ID
+                    deviceId: telemetryData.deviceId,
+                    alertType: alertPayload.alert,
+                    sensor: alertPayload.sensor || undefined,
+                    value: alertPayload.value !== undefined ? alertPayload.value : undefined,
+                    receivedAt: telemetryData.receivedAt || new Date().toISOString(),
+                  };
+                  
+                  // Trigger local notification
+                  await notificationService.sendLocalNotification(alertData);
+                  console.log('🔔 Local notification triggered for alert:', alertPayload.alert);
+                }
+              }
             } else if (message.type === 'error') {
               console.error('❌ WebSocket: Server error:', message.message);
             }
