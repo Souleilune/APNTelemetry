@@ -193,14 +193,15 @@ export function OverallAnalytics({ deviceId }: OverallAnalyticsProps) {
     const movementData: number[] = [];
 
     const recentReadings = readings.slice(0, 20).reverse();
+    const now = new Date();
 
-    recentReadings.forEach((reading, index) => {
+    recentReadings.forEach((reading) => {
       const date = new Date(reading.receivedAt);
-      if (index < 5) {
-        labels.push(date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-      } else {
-        labels.push(date.toLocaleDateString([], { month: 'short', day: 'numeric' }));
-      }
+      const isToday = date.toDateString() === now.toDateString();
+      const label = isToday
+        ? `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`
+        : `${date.getMonth() + 1}/${date.getDate()}`;
+      labels.push(label);
 
       movementData.push(reading.gyro.movement || 0);
     });
