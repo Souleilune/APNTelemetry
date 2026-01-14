@@ -8,8 +8,19 @@ import { notificationService } from '@/services/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
+import { Swipeable } from 'react-native-gesture-handler';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  interpolate,
+  Extrapolate,
+} from 'react-native-reanimated';
 import {
   ActivityIndicator,
+  Alert as RNAlert,
+  Animated as RNAnimated,
+  LayoutAnimation,
   Platform,
   RefreshControl,
   ScrollView,
@@ -58,6 +69,164 @@ const getAlertPriority = (alertType: string): number => {
   return ALERT_PRIORITY[alertType] ?? 0;
 };
 
+// Swipeable Alert Item Component
+interface SwipeableAlertItemProps {
+  alert: Alert;
+  config: { icon: keyof typeof Ionicons.glyphMap; color: string; label: string };
+  isRemoving: boolean;
+  isArchiving: boolean;
+  onArchive: (alertId: string) => void;
+  swipeableRef: (ref: Swipeable | null) => void;
+  renderRightActions: (
+    progress: RNAnimated.AnimatedInterpolation<number>,
+    dragX: RNAnimated.AnimatedInterpolation<number>,
+    alertId: string
+  ) => React.ReactElement;
+}
+
+const SwipeableAlertItem: React.FC<SwipeableAlertItemProps> = ({
+  alert,
+  config,
+  isRemoving,
+  isArchiving,
+  onArchive,
+  swipeableRef,
+  renderRightActions,
+}) => {
+  // Animated values for item removal
+  const itemOpacity = useSharedValue(1);
+  const itemTranslateX = useSharedValue(0);
+  const itemHeight = useSharedValue(100);
+  
+  // Track current swipe progress for time fade
+  const swipeProgressValue = useRef(new RNAnimated.Value(0));
+  const progressListenerIdRef = useRef<string | null>(null);
+
+  React.useEffect(() => {
+    if (isRemoving) {
+      itemOpacity.value = withTiming(0, { duration: 250 });
+      itemTranslateX.value = withTiming(-1000, { duration: 300 });
+      itemHeight.value = withTiming(0, { duration: 300 });
+    } else {
+      // Reset values when not removing
+      itemOpacity.value = 1;
+      itemTranslateX.value = 0;
+      itemHeight.value = 100;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRemoving]);
+
+  // Cleanup listener on unmount
+  React.useEffect(() => {
+    return () => {
+      if (progressListenerIdRef.current && swipeProgressValue.current) {
+        swipeProgressValue.current.removeListener(progressListenerIdRef.current);
+      }
+    };
+  }, []);
+
+  // Animate time text - slides left and fades out as swipe progresses
+  // This makes room for the delete icon to appear
+  const timeOpacity = swipeProgressValue.current.interpolate({
+    inputRange: [0, 0.3, 1],
+    outputRange: [1, 0.3, 0],
+    extrapolate: 'clamp',
+  });
+
+  // Slide time text to the left as swipe progresses (makes room for delete icon)
+  const timeTranslateX = swipeProgressValue.current.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0, -40, -80],
+    extrapolate: 'clamp',
+  });
+
+  const animatedItemStyle = useAnimatedStyle(() => {
+    return {
+      opacity: itemOpacity.value,
+      transform: [{ translateX: itemTranslateX.value }],
+      maxHeight: itemHeight.value,
+      overflow: 'hidden' as const,
+    };
+  });
+
+  return (
+    <Animated.View style={animatedItemStyle}>
+      <Swipeable
+        ref={swipeableRef}
+        renderRightActions={(progress, dragX) => {
+          // Update swipe progress for time fade animation
+          // Only add listener once
+          if (!progressListenerIdRef.current) {
+            progressListenerIdRef.current = progress.addListener(({ value }) => {
+              swipeProgressValue.current.setValue(value);
+            });
+          }
+          return renderRightActions(progress, dragX, alert.id);
+        }}
+        overshootRight={false}
+        overshootLeft={false}
+        friction={1.5}
+        enableTrackpadTwoFingerGesture={false}
+        rightThreshold={60}
+        onSwipeableOpen={(direction) => {
+          if (direction === 'right') {
+            onArchive(alert.id);
+          }
+        }}
+        onSwipeableClose={() => {
+          // Reset time opacity when swipe closes
+          swipeProgressValue.current.setValue(0);
+          // Clean up listener
+          if (progressListenerIdRef.current) {
+            swipeProgressValue.current.removeListener(progressListenerIdRef.current);
+            progressListenerIdRef.current = null;
+          }
+        }}
+      >
+        <View style={styles.alertItem}>
+          <View style={[styles.alertIconBg, { backgroundColor: config.color + '20' }]}>
+            <Ionicons name={config.icon} size={18} color={config.color} />
+          </View>
+          <View style={styles.alertInfo}>
+            <View style={styles.alertHeader}>
+              <Text style={styles.alertLabel}>{config.label}</Text>
+              {!alert.isActive && (
+                <View style={styles.clearedBadge}>
+                  <Text style={styles.clearedBadgeText}>Cleared</Text>
+                </View>
+              )}
+            </View>
+            {alert.alertType === 'WATER_DETECTED' && alert.sensor && (
+              <Text style={styles.alertValue}>
+                {alert.sensor.startsWith('ZONE') ? alert.sensor.replace('ZONE', 'Zone ') : alert.sensor}
+              </Text>
+            )}
+            {alert.value !== null && alert.value !== undefined && alert.alertType !== 'WATER_DETECTED' && (
+              <Text style={styles.alertValue}>
+                Value: {typeof alert.value === 'number' ? alert.value.toFixed(2) : alert.value}
+              </Text>
+            )}
+          </View>
+          <RNAnimated.Text 
+            style={[
+              styles.alertTime, 
+              { 
+                opacity: timeOpacity,
+                transform: [{ translateX: timeTranslateX }],
+              }
+            ]}
+          >
+            {new Date(alert.receivedAt).toLocaleTimeString([], { 
+              hour: '2-digit', 
+              minute: '2-digit' 
+            })}
+          </RNAnimated.Text>
+        </View>
+      </Swipeable>
+    </Animated.View>
+  );
+};
+
 export default function HomeScreen() {
   const { user } = useAuth();
   const { isConnected: wsConnected, sendCommand: wsSendCommand } = useWebSocket();
@@ -72,6 +241,12 @@ export default function HomeScreen() {
   const [selectedOutlet, setSelectedOutlet] = useState<1 | 2>(1);
   const [sensorReading, setSensorReading] = useState<SensorReading | null>(null);
   const [outletsData, setOutletsData] = useState<[OutletData, OutletData] | null>(null);
+  const [archivingAlertId, setArchivingAlertId] = useState<string | null>(null);
+  const [removingAlertIds, setRemovingAlertIds] = useState<Set<string>>(new Set());
+  const swipeableRefs = useRef<Map<string, Swipeable>>(new Map());
+  
+  // Swipe threshold (in pixels) - 60% of delete button width
+  const SWIPE_THRESHOLD = 60;
 
   const fetchData = useCallback(async () => {
     try {
@@ -213,6 +388,149 @@ export default function HomeScreen() {
       console.error('❌ Error sending test notification:', error);
       alert('Failed to send test notification. Check console for details.');
     }
+  };
+
+  const handleArchiveAlert = async (alertId: string, shouldAnimate: boolean = true) => {
+    if (shouldAnimate) {
+      // Mark as removing to trigger exit animation
+      setRemovingAlertIds(prev => new Set(prev).add(alertId));
+      
+      // Wait for animation to complete
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    setArchivingAlertId(alertId);
+    try {
+      const response = await api.archiveAlert(alertId);
+      
+      if (response.error) {
+        // Reset removing state on error
+        setRemovingAlertIds(prev => {
+          const next = new Set(prev);
+          next.delete(alertId);
+          return next;
+        });
+        
+        RNAlert.alert(
+          'Error',
+          response.message || 'Failed to archive alert. Please try again.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      // Configure layout animation for smooth list update
+      LayoutAnimation.configureNext({
+        duration: 250,
+        create: {
+          type: LayoutAnimation.Types.easeInEaseOut,
+          property: LayoutAnimation.Properties.opacity,
+        },
+        update: {
+          type: LayoutAnimation.Types.easeInEaseOut,
+        },
+        delete: {
+          type: LayoutAnimation.Types.easeInEaseOut,
+          property: LayoutAnimation.Properties.opacity,
+        },
+      });
+
+      // Remove alert from local state
+      setAlerts(prevAlerts => prevAlerts.filter(a => a.id !== alertId));
+      
+      console.log('✅ Alert archived successfully');
+    } catch (error) {
+      // Reset removing state on error
+      setRemovingAlertIds(prev => {
+        const next = new Set(prev);
+        next.delete(alertId);
+        return next;
+      });
+      
+      console.error('❌ Error archiving alert:', error);
+      RNAlert.alert(
+        'Error',
+        'Failed to archive alert. Please try again.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setArchivingAlertId(null);
+    }
+  };
+
+  const renderRightActions = (
+    progress: RNAnimated.AnimatedInterpolation<number>,
+    dragX: RNAnimated.AnimatedInterpolation<number>,
+    alertId: string
+  ) => {
+    const isArchiving = archivingAlertId === alertId;
+    
+    // Animate background opacity based on swipe progress - smooth fade in
+    const backgroundOpacity = progress.interpolate({
+      inputRange: [0, 0.3, 1],
+      outputRange: [0, 0.7, 1],
+      extrapolate: 'clamp',
+    });
+
+    // Animate icon scale - starts small, grows as swipe progresses, scales up past threshold
+    // dragX goes from 0 to negative, so inputRange must be ascending (most negative to 0)
+    const iconScale = dragX.interpolate({
+      inputRange: [-SWIPE_THRESHOLD * 1.5, -SWIPE_THRESHOLD, -SWIPE_THRESHOLD * 0.5, 0],
+      outputRange: [1.3, 1, 0.7, 0.3],
+      extrapolate: 'clamp',
+    });
+
+    // Icon fades in smoothly as swipe progresses
+    const iconOpacity = dragX.interpolate({
+      inputRange: [-SWIPE_THRESHOLD * 0.7, -SWIPE_THRESHOLD * 0.3, 0],
+      outputRange: [1, 0.5, 0],
+      extrapolate: 'clamp',
+    });
+
+    // Text fades in after icon starts appearing
+    const textOpacity = dragX.interpolate({
+      inputRange: [-SWIPE_THRESHOLD * 0.8, -SWIPE_THRESHOLD * 0.5, 0],
+      outputRange: [1, 0.3, 0],
+      extrapolate: 'clamp',
+    });
+
+    return (
+      <RNAnimated.View 
+        style={[
+          styles.deleteActionContainer,
+          { opacity: backgroundOpacity }
+        ]}
+      >
+        <View style={styles.deleteActionButton}>
+          {isArchiving ? (
+            <ActivityIndicator size="small" color={COLORS.white} />
+          ) : (
+            <>
+              <RNAnimated.View 
+                style={{
+                  transform: [{ scale: iconScale }],
+                  opacity: iconOpacity,
+                }}
+              >
+                <Ionicons 
+                  name="trash" 
+                  size={24} 
+                  color={COLORS.white}
+                />
+              </RNAnimated.View>
+              <RNAnimated.Text 
+                style={[
+                  styles.deleteActionText,
+                  { opacity: textOpacity }
+                ]}
+              >
+                Delete
+              </RNAnimated.Text>
+            </>
+          )}
+        </View>
+      </RNAnimated.View>
+    );
   };
 
   return (
@@ -435,38 +753,26 @@ export default function HomeScreen() {
                                 color: COLORS.warning, 
                                 label: alert.alertType 
                               };
+                              const isRemoving = removingAlertIds.has(alert.id);
+                              const isArchiving = archivingAlertId === alert.id;
+
                               return (
-                                <View key={alert.id} style={styles.alertItem}>
-                                  <View style={[styles.alertIconBg, { backgroundColor: config.color + '20' }]}>
-                                    <Ionicons name={config.icon} size={18} color={config.color} />
-                                  </View>
-                                  <View style={styles.alertInfo}>
-                                    <View style={styles.alertHeader}>
-                                      <Text style={styles.alertLabel}>{config.label}</Text>
-                                      {!alert.isActive && (
-                                        <View style={styles.clearedBadge}>
-                                          <Text style={styles.clearedBadgeText}>Cleared</Text>
-                                        </View>
-                                      )}
-                                    </View>
-                                    {alert.alertType === 'WATER_DETECTED' && alert.sensor && (
-                                      <Text style={styles.alertValue}>
-                                        {alert.sensor.startsWith('ZONE') ? alert.sensor.replace('ZONE', 'Zone ') : alert.sensor}
-                                      </Text>
-                                    )}
-                                    {alert.value !== null && alert.value !== undefined && alert.alertType !== 'WATER_DETECTED' && (
-                                      <Text style={styles.alertValue}>
-                                        Value: {typeof alert.value === 'number' ? alert.value.toFixed(2) : alert.value}
-                                      </Text>
-                                    )}
-                                  </View>
-                                  <Text style={styles.alertTime}>
-                                    {new Date(alert.receivedAt).toLocaleTimeString([], { 
-                                      hour: '2-digit', 
-                                      minute: '2-digit' 
-                                    })}
-                                  </Text>
-                                </View>
+                                <SwipeableAlertItem
+                                  key={alert.id}
+                                  alert={alert}
+                                  config={config}
+                                  isRemoving={isRemoving}
+                                  isArchiving={isArchiving}
+                                  onArchive={(alertId) => handleArchiveAlert(alertId, true)}
+                                  swipeableRef={(ref) => {
+                                    if (ref) {
+                                      swipeableRefs.current.set(alert.id, ref);
+                                    } else {
+                                      swipeableRefs.current.delete(alert.id);
+                                    }
+                                  }}
+                                  renderRightActions={renderRightActions}
+                                />
                               );
                             })}
                             {isAlertsCollapsed && hasMoreAlerts && (
@@ -961,5 +1267,24 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
     fontStyle: 'italic',
+  },
+  deleteActionContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 100,
+    backgroundColor: COLORS.danger,
+  },
+  deleteActionButton: {
+    backgroundColor: COLORS.danger,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    height: '100%',
+    gap: 6,
+  },
+  deleteActionText: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

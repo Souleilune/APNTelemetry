@@ -304,6 +304,13 @@ class ApiClient {
       method: 'DELETE',
     });
   }
+
+  // Archive alert endpoint
+  async archiveAlert(alertId: string): Promise<ApiResponse<{ message: string; alert: { id: string; alertType: string; archivedAt: string } }>> {
+    return this.request<{ message: string; alert: { id: string; alertType: string; archivedAt: string } }>(`/api/telemetry/alerts/${alertId}/archive`, {
+      method: 'POST',
+    });
+  }
 }
 
 export const api = new ApiClient();
