@@ -244,6 +244,7 @@ export default function HomeScreen() {
   const [archivingAlertId, setArchivingAlertId] = useState<string | null>(null);
   const [removingAlertIds, setRemovingAlertIds] = useState<Set<string>>(new Set());
   const swipeableRefs = useRef<Map<string, Swipeable>>(new Map());
+  const [isPowerTripped, setIsPowerTripped] = useState(false);
   
   // Swipe threshold (in pixels) - 60% of delete button width
   const SWIPE_THRESHOLD = 60;
@@ -595,7 +596,7 @@ export default function HomeScreen() {
           {/* Overall Analytics Section */}
           {devices.length > 0 && (
             <View style={styles.analyticsSection}>
-              <OverallAnalytics deviceId={devices[0].deviceId} />
+              <OverallAnalytics deviceId={devices[0].deviceId} isPowerTripped={isPowerTripped} />
             </View>
           )}
 
@@ -825,6 +826,7 @@ export default function HomeScreen() {
                     });
                     return;
                   }
+                  setIsPowerTripped(true);
                   sendCommand('TRIP_ALL');
                 }}
                 disabled={false}

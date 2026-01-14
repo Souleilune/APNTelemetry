@@ -18,9 +18,10 @@ const CHART_WIDTH = width - 80;
 
 interface OverallAnalyticsProps {
   deviceId?: string;
+  isPowerTripped?: boolean;
 }
 
-export function OverallAnalytics({ deviceId }: OverallAnalyticsProps) {
+export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAnalyticsProps) {
   const [readings, setReadings] = useState<SensorReading[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedChart, setSelectedChart] = useState<'movement' | 'gas' | 'voltage'>('movement');
@@ -86,7 +87,8 @@ export function OverallAnalytics({ deviceId }: OverallAnalyticsProps) {
       gasDetections.push(reading.gas ? 1 : 0);
       
       // Voltage placeholder (simulated data)
-      voltageValues.push(120 + Math.random() * 10); // 120-130V range
+      // Set to 0 if power is tripped, otherwise use random value
+      voltageValues.push(isPowerTripped ? 0 : 10 + Math.random() * 2); // 10-12V range or 0 if tripped
     });
 
     const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
@@ -166,7 +168,8 @@ export function OverallAnalytics({ deviceId }: OverallAnalyticsProps) {
       labels.push(label);
       
       // Simulated voltage data (placeholder)
-      voltageData.push(120 + Math.random() * 10); // 120-130V range
+      // Set to 0 if power is tripped, otherwise use random value
+      voltageData.push(isPowerTripped ? 0 : 10 + Math.random() * 2); // 10-12V range or 0 if tripped
     }
 
     // Format labels to show max 6 evenly spaced
