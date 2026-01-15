@@ -24,7 +24,7 @@ interface OverallAnalyticsProps {
 export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAnalyticsProps) {
   const [readings, setReadings] = useState<SensorReading[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedChart, setSelectedChart] = useState<'movement' | 'gas' | 'voltage'>('movement');
+  const [selectedChart, setSelectedChart] = useState<'movement' | 'gas' | 'voltage' | 'current'>('movement');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -79,6 +79,7 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
     const movementValues: number[] = [];
     const gasDetections: number[] = [];
     const voltageValues: number[] = []; // Placeholder data
+    const currentValues: number[] = []; // Placeholder data
 
     readings.forEach((reading) => {
       movementValues.push(reading.gyro?.movement || 0);
@@ -89,6 +90,10 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
       // Voltage placeholder (simulated data)
       // Set to 0 if power is tripped, otherwise use random value
       voltageValues.push(isPowerTripped ? 0 : 10 + Math.random() * 2); // 10-12V range or 0 if tripped
+      
+      // Current placeholder (simulated data)
+      // Set to 0 if power is tripped, otherwise use random value
+      currentValues.push(isPowerTripped ? 0 : Math.random() * 5); // 0-5A range or 0 if tripped
     });
 
     const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
@@ -109,6 +114,11 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
         avg: avg(voltageValues),
         max: max(voltageValues),
         min: min(voltageValues),
+      },
+      current: {
+        avg: avg(currentValues),
+        max: max(currentValues),
+        min: min(currentValues),
       },
     };
   };
@@ -191,6 +201,44 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
     };
   };
 
+  const prepareCurrentData = () => {
+    const labels: string[] = [];
+    const currentData: number[] = [];
+    const now = new Date();
+
+    // Generate placeholder data for last 30 readings
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date(now.getTime() - i * 60000); // 1 minute intervals
+      const isToday = date.toDateString() === now.toDateString();
+      const label = isToday
+        ? `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`
+        : `${date.getMonth() + 1}/${date.getDate()}`;
+      labels.push(label);
+      
+      // Simulated current data (placeholder)
+      // Set to 0 if power is tripped, otherwise use random value
+      currentData.push(isPowerTripped ? 0 : Math.random() * 5); // 0-5A range or 0 if tripped
+    }
+
+    // Format labels to show max 6 evenly spaced
+    const formatLabels = (labels: string[]): string[] => {
+      if (labels.length <= 6) return labels;
+      const step = Math.ceil(labels.length / 6);
+      return labels.filter((_, i) => i % step === 0);
+    };
+
+    return {
+      labels: formatLabels(labels),
+      datasets: [
+        {
+          data: currentData,
+          color: (opacity = 1) => `rgba(255, 193, 7, ${opacity})`, // Amber for current
+          strokeWidth: 2,
+        },
+      ],
+    };
+  };
+
   const prepareMovementData = () => {
     const labels: string[] = [];
     const movementData: number[] = [];
@@ -246,6 +294,8 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
         return prepareGasData();
       case 'voltage':
         return prepareVoltageData();
+      case 'current':
+        return prepareCurrentData();
       default:
         return prepareMovementData();
     }
@@ -259,6 +309,8 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
         return '%';
       case 'voltage':
         return 'V';
+      case 'current':
+        return 'A';
       default:
         return '';
     }
@@ -298,6 +350,15 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
             {stats.voltage.min.toFixed(1)} - {stats.voltage.max.toFixed(1)}V
           </Text>
         </View>
+
+        <View style={styles.statCard}>
+          <Ionicons name="radio" size={24} color="#FFC107" />
+          <Text style={styles.statValue}>{stats.current.avg.toFixed(1)}A</Text>
+          <Text style={styles.statLabel}>Current (Placeholder)</Text>
+          <Text style={styles.statRange}>
+            {stats.current.min.toFixed(1)} - {stats.current.max.toFixed(1)}A
+          </Text>
+        </View>
       </View>
 
       {/* Chart */}
@@ -305,7 +366,8 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
         <View style={styles.chartHeader}>
           <Text style={styles.chartTitle}>
             {selectedChart === 'movement' ? 'Movement' : 
-             selectedChart === 'gas' ? 'Gas Detection' : 'Voltage Sensor'}
+             selectedChart === 'gas' ? 'Gas Detection' : 
+             selectedChart === 'voltage' ? 'Voltage Sensor' : 'Current Sensor'}
           </Text>
           <View style={styles.chartSelector}>
             <View
@@ -324,6 +386,12 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
               style={[
                 styles.selectorDot,
                 selectedChart === 'voltage' && styles.selectorDotActive,
+              ]}
+            />
+            <View
+              style={[
+                styles.selectorDot,
+                selectedChart === 'current' && styles.selectorDotActive,
               ]}
             />
           </View>
@@ -384,7 +452,7 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
                 selectedChart === 'movement' && styles.chartTypeButtonTextActive,
               ]}
             >
-              Movement
+              Mov't
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -427,6 +495,27 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
               ]}
             >
               Voltage
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.chartTypeButton,
+              selectedChart === 'current' && styles.chartTypeButtonActive,
+            ]}
+            onPress={() => setSelectedChart('current')}
+          >
+            <Ionicons
+              name="radio"
+              size={16}
+              color={selectedChart === 'current' ? '#FFFFFF' : '#666'}
+            />
+            <Text
+              style={[
+                styles.chartTypeButtonText,
+                selectedChart === 'current' && styles.chartTypeButtonTextActive,
+              ]}
+            >
+              Current
             </Text>
           </TouchableOpacity>
         </View>
