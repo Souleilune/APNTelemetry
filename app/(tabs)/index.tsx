@@ -596,7 +596,11 @@ export default function HomeScreen() {
           {/* Overall Analytics Section */}
           {devices.length > 0 && (
             <View style={styles.analyticsSection}>
-              <OverallAnalytics deviceId={devices[0].deviceId} isPowerTripped={isPowerTripped} />
+              <OverallAnalytics 
+                deviceId={devices[0].deviceId} 
+                isPowerTripped={isPowerTripped}
+                latestReading={sensorReading}
+              />
             </View>
           )}
 

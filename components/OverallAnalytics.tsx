@@ -29,23 +29,31 @@ interface PowerData {
 interface OverallAnalyticsProps {
   deviceId?: string;
   isPowerTripped?: boolean;
+  latestReading?: SensorReading | null;
 }
 
 // Helper function to parse power data from JSON string
-const parsePowerData = (power: string | null): PowerData | null => {
+const parsePowerData = (power: string | null | object): PowerData | null => {
   if (!power) return null;
   
   try {
     // If power is already an object, return it
-    if (typeof power === 'object') {
+    if (typeof power === 'object' && !Array.isArray(power)) {
       return power as PowerData;
     }
     
-    // Try to parse as JSON string
-    const parsed = JSON.parse(power);
-    return parsed as PowerData;
+    // If it's a string, try to parse as JSON
+    if (typeof power === 'string') {
+      // Handle empty string
+      if (power.trim() === '') return null;
+      
+      const parsed = JSON.parse(power);
+      return parsed as PowerData;
+    }
+    
+    return null;
   } catch (error) {
-    console.warn('Failed to parse power data:', error);
+    console.warn('Failed to parse power data:', error, 'Raw value:', power);
     return null;
   }
 };
@@ -84,8 +92,9 @@ const getCurrent = (powerData: PowerData | null): number => {
   return 0;
 };
 
-export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAnalyticsProps) {
+export function OverallAnalytics({ deviceId, isPowerTripped = false, latestReading }: OverallAnalyticsProps) {
   const [readings, setReadings] = useState<SensorReading[]>([]);
+  const [latestReadingLocal, setLatestReadingLocal] = useState<SensorReading | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedChart, setSelectedChart] = useState<'movement' | 'gas' | 'voltage' | 'current'>('movement');
 
@@ -97,9 +106,18 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
       }
 
       try {
-        const response = await api.getSensorReadings({ limit: 50, deviceId });
-        if (response.data?.readings) {
-          setReadings(response.data.readings);
+        // Fetch both readings array and latest reading
+        const [readingsResponse, latestResponse] = await Promise.all([
+          api.getSensorReadings({ limit: 50, deviceId }),
+          api.getLatestSensorReading(deviceId)
+        ]);
+        
+        if (readingsResponse.data?.readings) {
+          setReadings(readingsResponse.data.readings);
+        }
+        
+        if (latestResponse.data?.reading) {
+          setLatestReadingLocal(latestResponse.data.reading);
         }
       } catch (error) {
         console.error('Error fetching analytics:', error);
@@ -109,6 +127,11 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
     };
 
     fetchData();
+    
+    // Auto-refresh every 5 seconds to get latest data (matching real-time updates)
+    const interval = setInterval(fetchData, 5000);
+    
+    return () => clearInterval(interval);
   }, [deviceId]);
 
   if (!deviceId) {
@@ -187,12 +210,61 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
 
   const stats = calculateStats();
 
-  // Get latest reading values for cards
-  const latestReading = readings.length > 0 ? readings[0] : null;
-  const latestPowerData = latestReading ? parsePowerData(latestReading.power) : null;
-  const latestMovement = latestReading?.gyro?.movement ?? 0;
+  // Get latest reading values for statistics cards from sensor_readings table
+  // Use the reading with the most recent timestamp among: prop, local fetch, or first from array
+  const getMostRecentReading = (): SensorReading | null => {
+    const candidates: (SensorReading | null | undefined)[] = [latestReading, latestReadingLocal, readings[0]];
+    const validReadings = candidates.filter((r): r is SensorReading => r !== null && r !== undefined);
+    
+    if (validReadings.length === 0) return null;
+    
+    // Sort by receivedAt timestamp (most recent first)
+    validReadings.sort((a, b) => {
+      const timeA = new Date(a.receivedAt).getTime();
+      const timeB = new Date(b.receivedAt).getTime();
+      return timeB - timeA;
+    });
+    
+    return validReadings[0];
+  };
+  
+  const currentLatestReading = getMostRecentReading();
+  
+  // Parse power data from the latest reading
+  const latestPowerData = currentLatestReading ? parsePowerData(currentLatestReading.power) : null;
+  
+  // Extract latest values for statistics cards
+  const latestMovement = currentLatestReading?.gyro?.movement ?? 0;
   const latestVoltage = latestPowerData ? getVoltage(latestPowerData) : 0;
   const latestCurrent = latestPowerData ? getCurrent(latestPowerData) : 0;
+  
+  // Debug: Log latest values to help troubleshoot
+  if (__DEV__) {
+    console.log('OverallAnalytics - Latest values:', {
+      latestMovement,
+      latestVoltage,
+      latestCurrent,
+      hasLatestReadingProp: !!latestReading,
+      readingsCount: readings.length,
+      firstReadingPower: readings[0]?.power,
+      firstReadingPowerType: typeof readings[0]?.power,
+      firstReadingId: readings[0]?.id,
+      firstReadingReceivedAt: readings[0]?.receivedAt,
+      parsedPowerData: latestPowerData,
+      currentLatestReadingPower: currentLatestReading?.power,
+    });
+    
+    // Also log the raw power string if it exists
+    if (readings[0]?.power) {
+      console.log('Raw power string:', readings[0].power);
+      try {
+        const parsed = JSON.parse(readings[0].power);
+        console.log('Parsed power object:', parsed);
+      } catch (e) {
+        console.warn('Failed to parse power as JSON:', e);
+      }
+    }
+  }
 
   // Prepare chart data
   const prepareGasData = () => {
