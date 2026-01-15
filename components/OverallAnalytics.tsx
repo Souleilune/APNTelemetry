@@ -16,10 +16,73 @@ import { LineChart } from 'react-native-chart-kit';
 const { width } = Dimensions.get('window');
 const CHART_WIDTH = width - 80;
 
+interface PowerData {
+  voltage1?: number;
+  voltage2?: number;
+  current1?: number;
+  current2?: number;
+  v1_raw?: number;
+  v2_raw?: number;
+  [key: string]: unknown;
+}
+
 interface OverallAnalyticsProps {
   deviceId?: string;
   isPowerTripped?: boolean;
 }
+
+// Helper function to parse power data from JSON string
+const parsePowerData = (power: string | null): PowerData | null => {
+  if (!power) return null;
+  
+  try {
+    // If power is already an object, return it
+    if (typeof power === 'object') {
+      return power as PowerData;
+    }
+    
+    // Try to parse as JSON string
+    const parsed = JSON.parse(power);
+    return parsed as PowerData;
+  } catch (error) {
+    console.warn('Failed to parse power data:', error);
+    return null;
+  }
+};
+
+// Helper function to extract voltage from power data
+const getVoltage = (powerData: PowerData | null): number => {
+  if (!powerData) return 0;
+  
+  // Use voltage2 if available and > 0, otherwise voltage1, fallback to 0
+  if (powerData.voltage2 !== undefined && powerData.voltage2 > 0) {
+    return powerData.voltage2;
+  }
+  if (powerData.voltage1 !== undefined && powerData.voltage1 > 0) {
+    return powerData.voltage1;
+  }
+  // Handle case where values might be 0 (valid reading)
+  if (powerData.voltage2 !== undefined) return powerData.voltage2;
+  if (powerData.voltage1 !== undefined) return powerData.voltage1;
+  return 0;
+};
+
+// Helper function to extract current from power data
+const getCurrent = (powerData: PowerData | null): number => {
+  if (!powerData) return 0;
+  
+  // Use current2 if available and > 0, otherwise current1, fallback to 0
+  if (powerData.current2 !== undefined && powerData.current2 > 0) {
+    return powerData.current2;
+  }
+  if (powerData.current1 !== undefined && powerData.current1 > 0) {
+    return powerData.current1;
+  }
+  // Handle case where values might be 0 (valid reading)
+  if (powerData.current2 !== undefined) return powerData.current2;
+  if (powerData.current1 !== undefined) return powerData.current1;
+  return 0;
+};
 
 export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAnalyticsProps) {
   const [readings, setReadings] = useState<SensorReading[]>([]);
@@ -78,8 +141,8 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
   const calculateStats = () => {
     const movementValues: number[] = [];
     const gasDetections: number[] = [];
-    const voltageValues: number[] = []; // Placeholder data
-    const currentValues: number[] = []; // Placeholder data
+    const voltageValues: number[] = [];
+    const currentValues: number[] = [];
 
     readings.forEach((reading) => {
       movementValues.push(reading.gyro?.movement || 0);
@@ -87,13 +150,12 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
       // Gas detection (1 for detected, 0 for not detected)
       gasDetections.push(reading.gas ? 1 : 0);
       
-      // Voltage placeholder (simulated data)
-      // Set to 0 if power is tripped, otherwise use random value
-      voltageValues.push(isPowerTripped ? 0 : 10 + Math.random() * 2); // 10-12V range or 0 if tripped
+      // Extract voltage from power data
+      const powerData = parsePowerData(reading.power);
+      voltageValues.push(getVoltage(powerData));
       
-      // Current placeholder (simulated data)
-      // Set to 0 if power is tripped, otherwise use random value
-      currentValues.push(isPowerTripped ? 0 : Math.random() * 5); // 0-5A range or 0 if tripped
+      // Extract current from power data
+      currentValues.push(getCurrent(powerData));
     });
 
     const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
@@ -124,6 +186,13 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
   };
 
   const stats = calculateStats();
+
+  // Get latest reading values for cards
+  const latestReading = readings.length > 0 ? readings[0] : null;
+  const latestPowerData = latestReading ? parsePowerData(latestReading.power) : null;
+  const latestMovement = latestReading?.gyro?.movement ?? 0;
+  const latestVoltage = latestPowerData ? getVoltage(latestPowerData) : 0;
+  const latestCurrent = latestPowerData ? getCurrent(latestPowerData) : 0;
 
   // Prepare chart data
   const prepareGasData = () => {
@@ -166,21 +235,22 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
   const prepareVoltageData = () => {
     const labels: string[] = [];
     const voltageData: number[] = [];
+
+    const recentReadings = readings.slice(0, 30).reverse();
     const now = new Date();
 
-    // Generate placeholder data for last 30 readings
-    for (let i = 29; i >= 0; i--) {
-      const date = new Date(now.getTime() - i * 60000); // 1 minute intervals
+    recentReadings.forEach((reading) => {
+      const date = new Date(reading.receivedAt);
       const isToday = date.toDateString() === now.toDateString();
       const label = isToday
         ? `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`
         : `${date.getMonth() + 1}/${date.getDate()}`;
       labels.push(label);
-      
-      // Simulated voltage data (placeholder)
-      // Set to 0 if power is tripped, otherwise use random value
-      voltageData.push(isPowerTripped ? 0 : 10 + Math.random() * 2); // 10-12V range or 0 if tripped
-    }
+
+      // Extract voltage from power data
+      const powerData = parsePowerData(reading.power);
+      voltageData.push(getVoltage(powerData));
+    });
 
     // Format labels to show max 6 evenly spaced
     const formatLabels = (labels: string[]): string[] => {
@@ -193,7 +263,7 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
       labels: formatLabels(labels),
       datasets: [
         {
-          data: voltageData,
+          data: voltageData.length > 0 ? voltageData : [0],
           color: (opacity = 1) => `rgba(76, 175, 80, ${opacity})`, // Green for voltage
           strokeWidth: 2,
         },
@@ -204,21 +274,22 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
   const prepareCurrentData = () => {
     const labels: string[] = [];
     const currentData: number[] = [];
+
+    const recentReadings = readings.slice(0, 30).reverse();
     const now = new Date();
 
-    // Generate placeholder data for last 30 readings
-    for (let i = 29; i >= 0; i--) {
-      const date = new Date(now.getTime() - i * 60000); // 1 minute intervals
+    recentReadings.forEach((reading) => {
+      const date = new Date(reading.receivedAt);
       const isToday = date.toDateString() === now.toDateString();
       const label = isToday
         ? `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`
         : `${date.getMonth() + 1}/${date.getDate()}`;
       labels.push(label);
-      
-      // Simulated current data (placeholder)
-      // Set to 0 if power is tripped, otherwise use random value
-      currentData.push(isPowerTripped ? 0 : Math.random() * 5); // 0-5A range or 0 if tripped
-    }
+
+      // Extract current from power data
+      const powerData = parsePowerData(reading.power);
+      currentData.push(getCurrent(powerData));
+    });
 
     // Format labels to show max 6 evenly spaced
     const formatLabels = (labels: string[]): string[] => {
@@ -231,7 +302,7 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
       labels: formatLabels(labels),
       datasets: [
         {
-          data: currentData,
+          data: currentData.length > 0 ? currentData : [0],
           color: (opacity = 1) => `rgba(255, 193, 7, ${opacity})`, // Amber for current
           strokeWidth: 2,
         },
@@ -326,8 +397,8 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
       <View style={styles.statsGrid}>
         <View style={styles.statCard}>
           <Ionicons name="pulse" size={24} color="#FF9800" />
-          <Text style={styles.statValue}>{stats.movement.avg.toFixed(2)}</Text>
-          <Text style={styles.statLabel}>Avg Movement</Text>
+          <Text style={styles.statValue}>{latestMovement.toFixed(2)}</Text>
+          <Text style={styles.statLabel}>Movement</Text>
           <Text style={styles.statRange}>
             {stats.movement.min.toFixed(2)} - {stats.movement.max.toFixed(2)}
           </Text>
@@ -344,8 +415,8 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
 
         <View style={styles.statCard}>
           <Ionicons name="flash" size={24} color="#4CAF50" />
-          <Text style={styles.statValue}>{stats.voltage.avg.toFixed(1)}V</Text>
-          <Text style={styles.statLabel}>Voltage (Placeholder)</Text>
+          <Text style={styles.statValue}>{latestVoltage.toFixed(1)}V</Text>
+          <Text style={styles.statLabel}>Voltage</Text>
           <Text style={styles.statRange}>
             {stats.voltage.min.toFixed(1)} - {stats.voltage.max.toFixed(1)}V
           </Text>
@@ -353,8 +424,8 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
 
         <View style={styles.statCard}>
           <Ionicons name="radio" size={24} color="#FFC107" />
-          <Text style={styles.statValue}>{stats.current.avg.toFixed(1)}A</Text>
-          <Text style={styles.statLabel}>Current (Placeholder)</Text>
+          <Text style={styles.statValue}>{latestCurrent.toFixed(1)}A</Text>
+          <Text style={styles.statLabel}>Current</Text>
           <Text style={styles.statRange}>
             {stats.current.min.toFixed(1)} - {stats.current.max.toFixed(1)}A
           </Text>
