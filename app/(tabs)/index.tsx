@@ -1,5 +1,5 @@
 import { useAuth } from '@/contexts/auth-context';
-import { api, Alert, Device, SensorReading } from '@/lib/api';
+import { api, Alert, Device, SensorReading, Socket } from '@/lib/api';
 import { OverallAnalytics } from '@/components/OverallAnalytics';
 import { OutletModal } from '@/components/OutletModal';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -20,6 +20,7 @@ import {
   ActivityIndicator,
   Alert as RNAlert,
   Animated as RNAnimated,
+  Dimensions,
   LayoutAnimation,
   Platform,
   RefreshControl,
@@ -30,6 +31,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter, useFocusEffect } from 'expo-router';
 
 const COLORS = {
   primary: '#FF8C42',
@@ -229,9 +231,11 @@ const SwipeableAlertItem: React.FC<SwipeableAlertItemProps> = ({
 
 export default function HomeScreen() {
   const { user } = useAuth();
+  const router = useRouter();
   const { isConnected: wsConnected, sendCommand: wsSendCommand } = useWebSocket();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
+  const [sockets, setSockets] = useState<Socket[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [commandLoading, setCommandLoading] = useState<string | null>(null);
@@ -244,21 +248,22 @@ export default function HomeScreen() {
   const [archivingAlertId, setArchivingAlertId] = useState<string | null>(null);
   const [removingAlertIds, setRemovingAlertIds] = useState<Set<string>>(new Set());
   const swipeableRefs = useRef<Map<string, Swipeable>>(new Map());
-  const [isPowerTripped, setIsPowerTripped] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
   
   // Swipe threshold (in pixels) - 60% of delete button width
   const SWIPE_THRESHOLD = 60;
 
   const fetchData = useCallback(async () => {
     try {
-      const [alertsRes, devicesRes, sensorRes] = await Promise.all([
+      const [alertsRes, devicesRes, sensorRes, socketsRes] = await Promise.all([
         api.getAllAlerts(100), // Get all alerts (up to 100)
         api.getDevices(),
         api.getLatestSensorReading(),
+        api.getSockets(),
       ]);
 
       if (alertsRes.data) {
-        console.log('📊 Fetched alerts:', JSON.stringify(alertsRes.data.alerts, null, 2));
+        console.log(`📊 Fetched ${alertsRes.data.alerts.length} alerts`);
         setAlerts(alertsRes.data.alerts);
       }
       if (devicesRes.data) {
@@ -269,6 +274,9 @@ export default function HomeScreen() {
         // Split sensor data by outlet (assuming breakers are both ON by default)
         const outletData = splitSensorDataByOutlet(sensorRes.data.reading, true, true);
         setOutletsData(outletData);
+      }
+      if (socketsRes.data) {
+        setSockets(socketsRes.data.sockets);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -284,6 +292,22 @@ export default function HomeScreen() {
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
+
+  // Refresh sockets when screen comes into focus (e.g., returning from add-socket)
+  useFocusEffect(
+    useCallback(() => {
+      // Only refresh sockets if we're not in initial loading state
+      if (!loading) {
+        api.getSockets().then((response) => {
+          if (response.data) {
+            setSockets(response.data.sockets);
+          }
+        }).catch((error) => {
+          console.error('Error refreshing sockets:', error);
+        });
+      }
+    }, [loading])
+  );
 
   // Handle notification taps - expand alerts section and filter if needed
   useEffect(() => {
@@ -556,51 +580,57 @@ export default function HomeScreen() {
             />
           }
         >
-          {/* Outlet Cards Section */}
+          {/* Outlet Cards Section - Carousel */}
           <View style={styles.outletsSection}>
-            <TouchableOpacity
-              style={styles.outletCard}
-              onPress={() => handleOutletPress(1)}
-              activeOpacity={0.7}
+            <ScrollView
+              ref={scrollViewRef}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.outletsCarousel}
+              snapToInterval={Platform.OS === 'ios' ? undefined : 0}
+              decelerationRate="fast"
             >
-              <Text style={styles.outletLabel}>Outlet 1</Text>
-              <View style={[styles.outletIconPlaceholder, !isConnected && styles.outletDisabled]}>
-                <View style={styles.outletFace}>
-                  <View style={styles.eyesRow}>
-                    <View style={styles.eye} />
-                    <View style={styles.eye} />
+              {/* Render socket cards */}
+              {sockets.map((socket, index) => (
+                <TouchableOpacity
+                  key={socket.id}
+                  style={styles.outletCard}
+                  onPress={() => handleOutletPress((index + 1) as 1 | 2)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.outletLabel}>{socket.name}</Text>
+                  {socket.location && (
+                    <Text style={styles.outletLocation}>{socket.location}</Text>
+                  )}
+                  <View style={[styles.outletIconPlaceholder, !isConnected && styles.outletDisabled]}>
+                    <View style={styles.outletFace}>
+                      <View style={styles.eyesRow}>
+                        <View style={styles.eye} />
+                        <View style={styles.eye} />
+                      </View>
+                      <View style={styles.mouth} />
+                    </View>
                   </View>
-                  <View style={styles.mouth} />
-                </View>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.outletCard}
-              onPress={() => handleOutletPress(2)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.outletLabel}>Outlet 2</Text>
-              <View style={[styles.outletIconPlaceholder, !isConnected && styles.outletDisabled]}>
-                <View style={styles.outletFace}>
-                  <View style={styles.eyesRow}>
-                    <View style={styles.eye} />
-                    <View style={styles.eye} />
-                  </View>
-                  <View style={styles.mouth} />
-                </View>
-              </View>
-            </TouchableOpacity>
+                </TouchableOpacity>
+              ))}
+              
+              {/* Add Socket Card */}
+              <TouchableOpacity
+                style={[styles.outletCard, styles.addSocketCard]}
+                onPress={() => router.push('/add-socket-form' as any)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="add-circle-outline" size={32} color={COLORS.primary} />
+                <Text style={styles.addSocketLabel}>Add Socket</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
 
           {/* Overall Analytics Section */}
           {devices.length > 0 && (
             <View style={styles.analyticsSection}>
-              <OverallAnalytics 
-                deviceId={devices[0].deviceId} 
-                isPowerTripped={isPowerTripped}
-                latestReading={sensorReading}
-              />
+              <OverallAnalytics deviceId={devices[0].deviceId} />
             </View>
           )}
 
@@ -830,7 +860,6 @@ export default function HomeScreen() {
                     });
                     return;
                   }
-                  setIsPowerTripped(true);
                   sendCommand('TRIP_ALL');
                 }}
                 disabled={false}
@@ -959,12 +988,16 @@ const styles = StyleSheet.create({
     paddingBottom: 100,
   },
   outletsSection: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     marginBottom: 24,
+    height: 180,
+  },
+  outletsCarousel: {
+    paddingHorizontal: 12,
   },
   outletCard: {
-    width: '48%',
+    width: Dimensions.get('window').width - 72, // Screen width minus padding (24*2) and gap (12*2)
+    marginHorizontal: 6,
+    minWidth: Dimensions.get('window').width - 72,
     backgroundColor: COLORS.cardBg,
     borderRadius: 20,
     padding: 16,
@@ -985,7 +1018,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: COLORS.primary,
-    marginBottom: 12,
+    marginBottom: 4,
+  },
+  outletLocation: {
+    fontSize: 12,
+    color: COLORS.textLight,
+    marginBottom: 8,
+  },
+  addSocketCard: {
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    borderStyle: 'dashed',
+  },
+  addSocketLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.primary,
+    marginTop: 8,
   },
   outletIconPlaceholder: {
     width: 100,

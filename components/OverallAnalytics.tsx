@@ -1,6 +1,7 @@
 import { api, SensorReading } from '@/lib/api';
+import { useWebSocket } from '@/hooks/useWebSocket';
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -16,88 +17,136 @@ import { LineChart } from 'react-native-chart-kit';
 const { width } = Dimensions.get('window');
 const CHART_WIDTH = width - 80;
 
-interface PowerData {
-  voltage1?: number;
-  voltage2?: number;
-  current1?: number;
-  current2?: number;
-  v1_raw?: number;
-  v2_raw?: number;
-  [key: string]: unknown;
-}
-
 interface OverallAnalyticsProps {
   deviceId?: string;
   isPowerTripped?: boolean;
-  latestReading?: SensorReading | null;
 }
 
-// Helper function to parse power data from JSON string
-const parsePowerData = (power: string | null | object): PowerData | null => {
-  if (!power) return null;
-  
-  try {
-    // If power is already an object, return it
-    if (typeof power === 'object' && !Array.isArray(power)) {
-      return power as PowerData;
-    }
-    
-    // If it's a string, try to parse as JSON
-    if (typeof power === 'string') {
-      // Handle empty string
-      if (power.trim() === '') return null;
-      
-      const parsed = JSON.parse(power);
-      return parsed as PowerData;
-    }
-    
-    return null;
-  } catch (error) {
-    console.warn('Failed to parse power data:', error, 'Raw value:', power);
-    return null;
-  }
-};
-
-// Helper function to extract voltage from power data
-const getVoltage = (powerData: PowerData | null): number => {
-  if (!powerData) return 0;
-  
-  // Use voltage2 if available and > 0, otherwise voltage1, fallback to 0
-  if (powerData.voltage2 !== undefined && powerData.voltage2 > 0) {
-    return powerData.voltage2;
-  }
-  if (powerData.voltage1 !== undefined && powerData.voltage1 > 0) {
-    return powerData.voltage1;
-  }
-  // Handle case where values might be 0 (valid reading)
-  if (powerData.voltage2 !== undefined) return powerData.voltage2;
-  if (powerData.voltage1 !== undefined) return powerData.voltage1;
-  return 0;
-};
-
-// Helper function to extract current from power data
-const getCurrent = (powerData: PowerData | null): number => {
-  if (!powerData) return 0;
-  
-  // Use current2 if available and > 0, otherwise current1, fallback to 0
-  if (powerData.current2 !== undefined && powerData.current2 > 0) {
-    return powerData.current2;
-  }
-  if (powerData.current1 !== undefined && powerData.current1 > 0) {
-    return powerData.current1;
-  }
-  // Handle case where values might be 0 (valid reading)
-  if (powerData.current2 !== undefined) return powerData.current2;
-  if (powerData.current1 !== undefined) return powerData.current1;
-  return 0;
-};
-
-export function OverallAnalytics({ deviceId, isPowerTripped = false, latestReading }: OverallAnalyticsProps) {
+export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAnalyticsProps) {
   const [readings, setReadings] = useState<SensorReading[]>([]);
-  const [latestReadingLocal, setLatestReadingLocal] = useState<SensorReading | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedChart, setSelectedChart] = useState<'movement' | 'gas' | 'voltage' | 'current'>('movement');
 
+  // Transform WebSocket telemetry message to SensorReading format
+  const transformTelemetryToReading = useCallback((telemetryData: {
+    deviceId: string;
+    messageType: string;
+    payload: any;
+    receivedAt: string;
+  }): SensorReading | null => {
+    // Handle both sensor_reading and power_status messages (power_status contains full sensor data)
+    if (telemetryData.messageType !== 'sensor_reading' && 
+        telemetryData.messageType !== 'power_status') {
+      return null;
+    }
+
+    const payload = telemetryData.payload;
+    console.log(`🔍 Analytics: Transforming ${telemetryData.messageType} payload:`, {
+      water: payload.water,
+      gas: payload.gas,
+      temperature: payload.temperature,
+      gyro: payload.gyro,
+      power: payload.power ? 'object' : payload.power_status,
+    });
+    
+    // Convert water array: handle both boolean arrays and number arrays
+    let waterArray: [number | null, number | null, number | null, number | null] = [null, null, null, null];
+    if (Array.isArray(payload.water)) {
+      waterArray = payload.water.map((w: any) => {
+        if (typeof w === 'boolean') {
+          return w ? 1 : 0;
+        }
+        if (typeof w === 'number') {
+          return w;
+        }
+        return null;
+      }) as [number | null, number | null, number | null, number | null];
+    }
+    
+    // Handle power object - extract voltage and current if available
+    // The power field in SensorReading is a string, but we'll store the power object as JSON string
+    // or extract a summary. For now, store as JSON string if it's an object.
+    let powerValue: string | null = null;
+    if (payload.power) {
+      if (typeof payload.power === 'object') {
+        // Store power object as JSON string, or create a summary
+        // For voltage/current, we'll extract them separately if needed
+        powerValue = JSON.stringify(payload.power);
+      } else {
+        powerValue = payload.power;
+      }
+    } else if (payload.power_status) {
+      powerValue = payload.power_status;
+    }
+    
+    return {
+      id: `${telemetryData.deviceId}_${Date.now()}_${Math.random()}`,
+      deviceId: telemetryData.deviceId,
+      water: waterArray,
+      gas: payload.gas !== undefined ? Boolean(payload.gas) : false,
+      temperature: {
+        temp1: payload.temperature?.temp1 ?? payload.temp_1 ?? null,
+        temp2: payload.temperature?.temp2 ?? payload.temp_2 ?? null,
+      },
+      gyro: {
+        movement: payload.gyro?.movement ?? payload.movement ?? null,
+      },
+      power: powerValue,
+      receivedAt: telemetryData.receivedAt || new Date().toISOString(),
+    };
+  }, []);
+
+  // Handle real-time WebSocket telemetry messages
+  const handleTelemetry = useCallback((telemetryData: {
+    deviceId: string;
+    messageType: string;
+    payload: any;
+    receivedAt: string;
+  }) => {
+    // Process both sensor_reading and power_status messages for the current device
+    // power_status messages contain full sensor data including voltage and current
+    if ((telemetryData.messageType === 'sensor_reading' || 
+         telemetryData.messageType === 'power_status') && 
+        telemetryData.deviceId === deviceId) {
+      
+      console.log(`📊 Analytics: Received ${telemetryData.messageType} from ${telemetryData.deviceId}`);
+      
+      const newReading = transformTelemetryToReading(telemetryData);
+      
+      if (newReading) {
+        console.log(`✅ Analytics: Transformed reading - movement: ${newReading.gyro?.movement}, gas: ${newReading.gas}, temp: ${newReading.temperature.temp1}/${newReading.temperature.temp2}`);
+        
+        setReadings((prevReadings) => {
+          // Check if we already have a reading with the same timestamp (avoid duplicates)
+          // Use a more lenient check - allow readings within 1 second to avoid exact timestamp duplicates
+          const newTimestamp = new Date(newReading.receivedAt).getTime();
+          const isDuplicate = prevReadings.some((r) => {
+            const rTimestamp = new Date(r.receivedAt).getTime();
+            return Math.abs(newTimestamp - rTimestamp) < 1000 && r.deviceId === newReading.deviceId;
+          });
+          
+          if (isDuplicate) {
+            console.log('⚠️ Analytics: Duplicate reading detected, skipping');
+            return prevReadings;
+          }
+          
+          // Prepend new reading (most recent first) and limit to last 100 readings
+          const updated = [newReading, ...prevReadings];
+          console.log(`📈 Analytics: Updated readings count: ${updated.length}`);
+          return updated.slice(0, 100);
+        });
+      } else {
+        console.warn('⚠️ Analytics: Failed to transform telemetry data');
+      }
+    }
+  }, [deviceId, transformTelemetryToReading]);
+
+  // Initialize WebSocket with telemetry callback
+  useWebSocket({
+    onTelemetry: handleTelemetry,
+  });
+
+  // Fetch initial historical data
   useEffect(() => {
     const fetchData = async () => {
       if (!deviceId) {
@@ -106,18 +155,9 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false, latestReadi
       }
 
       try {
-        // Fetch both readings array and latest reading
-        const [readingsResponse, latestResponse] = await Promise.all([
-          api.getSensorReadings({ limit: 50, deviceId }),
-          api.getLatestSensorReading(deviceId)
-        ]);
-        
-        if (readingsResponse.data?.readings) {
-          setReadings(readingsResponse.data.readings);
-        }
-        
-        if (latestResponse.data?.reading) {
-          setLatestReadingLocal(latestResponse.data.reading);
+        const response = await api.getSensorReadings({ limit: 50, deviceId });
+        if (response.data?.readings) {
+          setReadings(response.data.readings);
         }
       } catch (error) {
         console.error('Error fetching analytics:', error);
@@ -127,11 +167,6 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false, latestReadi
     };
 
     fetchData();
-    
-    // Auto-refresh every 5 seconds to get latest data (matching real-time updates)
-    const interval = setInterval(fetchData, 5000);
-    
-    return () => clearInterval(interval);
   }, [deviceId]);
 
   if (!deviceId) {
@@ -160,6 +195,35 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false, latestReadi
     );
   }
 
+  // Helper function to extract voltage and current from power object
+  const extractPowerData = (power: string | null): { voltage: number | null; current: number | null } => {
+    if (!power) return { voltage: null, current: null };
+    
+    try {
+      // Power might be a JSON string or a plain string
+      const powerObj = typeof power === 'string' ? JSON.parse(power) : power;
+      
+      if (typeof powerObj === 'object' && powerObj !== null) {
+        // Extract voltage (average of voltage1 and voltage2, or use voltage1 if voltage2 is 0)
+        const v1 = powerObj.voltage1 ?? 0;
+        const v2 = powerObj.voltage2 ?? 0;
+        const voltage = v1 > 0 || v2 > 0 ? (v1 + v2) / 2 : null;
+        
+        // Extract current (average of current1 and current2)
+        const c1 = powerObj.current1 ?? 0;
+        const c2 = powerObj.current2 ?? 0;
+        const current = c1 > 0 || c2 > 0 ? (c1 + c2) / 2 : null;
+        
+        return { voltage, current };
+      }
+    } catch (e) {
+      // If parsing fails, power is likely a plain string
+      console.debug('Power data is not JSON:', e);
+    }
+    
+    return { voltage: null, current: null };
+  };
+
   // Calculate statistics
   const calculateStats = () => {
     const movementValues: number[] = [];
@@ -173,12 +237,24 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false, latestReadi
       // Gas detection (1 for detected, 0 for not detected)
       gasDetections.push(reading.gas ? 1 : 0);
       
-      // Extract voltage from power data
-      const powerData = parsePowerData(reading.power);
-      voltageValues.push(getVoltage(powerData));
+      // Extract real voltage and current from power object
+      const { voltage, current } = extractPowerData(reading.power);
       
-      // Extract current from power data
-      currentValues.push(getCurrent(powerData));
+      // Use real voltage data, or 0 if power is tripped
+      if (isPowerTripped) {
+        voltageValues.push(0);
+      } else if (voltage !== null) {
+        voltageValues.push(voltage);
+      }
+      // If no voltage data, don't add to array (will be excluded from stats)
+      
+      // Use real current data, or 0 if power is tripped
+      if (isPowerTripped) {
+        currentValues.push(0);
+      } else if (current !== null) {
+        currentValues.push(current);
+      }
+      // If no current data, don't add to array (will be excluded from stats)
     });
 
     const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
@@ -196,75 +272,19 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false, latestReadi
         total: gasDetections.length,
       },
       voltage: {
-        avg: avg(voltageValues),
-        max: max(voltageValues),
-        min: min(voltageValues),
+        avg: voltageValues.length > 0 ? avg(voltageValues) : 0,
+        max: voltageValues.length > 0 ? max(voltageValues) : 0,
+        min: voltageValues.length > 0 ? min(voltageValues) : 0,
       },
       current: {
-        avg: avg(currentValues),
-        max: max(currentValues),
-        min: min(currentValues),
+        avg: currentValues.length > 0 ? avg(currentValues) : 0,
+        max: currentValues.length > 0 ? max(currentValues) : 0,
+        min: currentValues.length > 0 ? min(currentValues) : 0,
       },
     };
   };
 
   const stats = calculateStats();
-
-  // Get latest reading values for statistics cards from sensor_readings table
-  // Use the reading with the most recent timestamp among: prop, local fetch, or first from array
-  const getMostRecentReading = (): SensorReading | null => {
-    const candidates: (SensorReading | null | undefined)[] = [latestReading, latestReadingLocal, readings[0]];
-    const validReadings = candidates.filter((r): r is SensorReading => r !== null && r !== undefined);
-    
-    if (validReadings.length === 0) return null;
-    
-    // Sort by receivedAt timestamp (most recent first)
-    validReadings.sort((a, b) => {
-      const timeA = new Date(a.receivedAt).getTime();
-      const timeB = new Date(b.receivedAt).getTime();
-      return timeB - timeA;
-    });
-    
-    return validReadings[0];
-  };
-  
-  const currentLatestReading = getMostRecentReading();
-  
-  // Parse power data from the latest reading
-  const latestPowerData = currentLatestReading ? parsePowerData(currentLatestReading.power) : null;
-  
-  // Extract latest values for statistics cards
-  const latestMovement = currentLatestReading?.gyro?.movement ?? 0;
-  const latestVoltage = latestPowerData ? getVoltage(latestPowerData) : 0;
-  const latestCurrent = latestPowerData ? getCurrent(latestPowerData) : 0;
-  
-  // Debug: Log latest values to help troubleshoot
-  if (__DEV__) {
-    console.log('OverallAnalytics - Latest values:', {
-      latestMovement,
-      latestVoltage,
-      latestCurrent,
-      hasLatestReadingProp: !!latestReading,
-      readingsCount: readings.length,
-      firstReadingPower: readings[0]?.power,
-      firstReadingPowerType: typeof readings[0]?.power,
-      firstReadingId: readings[0]?.id,
-      firstReadingReceivedAt: readings[0]?.receivedAt,
-      parsedPowerData: latestPowerData,
-      currentLatestReadingPower: currentLatestReading?.power,
-    });
-    
-    // Also log the raw power string if it exists
-    if (readings[0]?.power) {
-      console.log('Raw power string:', readings[0].power);
-      try {
-        const parsed = JSON.parse(readings[0].power);
-        console.log('Parsed power object:', parsed);
-      } catch (e) {
-        console.warn('Failed to parse power as JSON:', e);
-      }
-    }
-  }
 
   // Prepare chart data
   const prepareGasData = () => {
@@ -309,19 +329,24 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false, latestReadi
     const voltageData: number[] = [];
 
     const recentReadings = readings.slice(0, 30).reverse();
-    const now = new Date();
 
     recentReadings.forEach((reading) => {
       const date = new Date(reading.receivedAt);
-      const isToday = date.toDateString() === now.toDateString();
+      const isToday = date.toDateString() === new Date().toDateString();
       const label = isToday
         ? `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`
         : `${date.getMonth() + 1}/${date.getDate()}`;
       labels.push(label);
-
-      // Extract voltage from power data
-      const powerData = parsePowerData(reading.power);
-      voltageData.push(getVoltage(powerData));
+      
+      // Extract real voltage data from power object
+      const { voltage } = extractPowerData(reading.power);
+      if (isPowerTripped) {
+        voltageData.push(0);
+      } else if (voltage !== null) {
+        voltageData.push(voltage);
+      } else {
+        voltageData.push(0); // No data available
+      }
     });
 
     // Format labels to show max 6 evenly spaced
@@ -335,7 +360,7 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false, latestReadi
       labels: formatLabels(labels),
       datasets: [
         {
-          data: voltageData.length > 0 ? voltageData : [0],
+          data: voltageData,
           color: (opacity = 1) => `rgba(76, 175, 80, ${opacity})`, // Green for voltage
           strokeWidth: 2,
         },
@@ -348,19 +373,24 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false, latestReadi
     const currentData: number[] = [];
 
     const recentReadings = readings.slice(0, 30).reverse();
-    const now = new Date();
 
     recentReadings.forEach((reading) => {
       const date = new Date(reading.receivedAt);
-      const isToday = date.toDateString() === now.toDateString();
+      const isToday = date.toDateString() === new Date().toDateString();
       const label = isToday
         ? `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`
         : `${date.getMonth() + 1}/${date.getDate()}`;
       labels.push(label);
-
-      // Extract current from power data
-      const powerData = parsePowerData(reading.power);
-      currentData.push(getCurrent(powerData));
+      
+      // Extract real current data from power object
+      const { current } = extractPowerData(reading.power);
+      if (isPowerTripped) {
+        currentData.push(0);
+      } else if (current !== null) {
+        currentData.push(current);
+      } else {
+        currentData.push(0); // No data available
+      }
     });
 
     // Format labels to show max 6 evenly spaced
@@ -374,7 +404,7 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false, latestReadi
       labels: formatLabels(labels),
       datasets: [
         {
-          data: currentData.length > 0 ? currentData : [0],
+          data: currentData,
           color: (opacity = 1) => `rgba(255, 193, 7, ${opacity})`, // Amber for current
           strokeWidth: 2,
         },
@@ -469,8 +499,8 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false, latestReadi
       <View style={styles.statsGrid}>
         <View style={styles.statCard}>
           <Ionicons name="pulse" size={24} color="#FF9800" />
-          <Text style={styles.statValue}>{latestMovement.toFixed(2)}</Text>
-          <Text style={styles.statLabel}>Movement</Text>
+          <Text style={styles.statValue}>{stats.movement.avg.toFixed(2)}</Text>
+          <Text style={styles.statLabel}>Avg Movement</Text>
           <Text style={styles.statRange}>
             {stats.movement.min.toFixed(2)} - {stats.movement.max.toFixed(2)}
           </Text>
@@ -487,7 +517,7 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false, latestReadi
 
         <View style={styles.statCard}>
           <Ionicons name="flash" size={24} color="#4CAF50" />
-          <Text style={styles.statValue}>{latestVoltage.toFixed(1)}V</Text>
+          <Text style={styles.statValue}>{stats.voltage.avg.toFixed(1)}V</Text>
           <Text style={styles.statLabel}>Voltage</Text>
           <Text style={styles.statRange}>
             {stats.voltage.min.toFixed(1)} - {stats.voltage.max.toFixed(1)}V
@@ -496,7 +526,7 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false, latestReadi
 
         <View style={styles.statCard}>
           <Ionicons name="radio" size={24} color="#FFC107" />
-          <Text style={styles.statValue}>{latestCurrent.toFixed(1)}A</Text>
+          <Text style={styles.statValue}>{stats.current.avg.toFixed(1)}A</Text>
           <Text style={styles.statLabel}>Current</Text>
           <Text style={styles.statRange}>
             {stats.current.min.toFixed(1)} - {stats.current.max.toFixed(1)}A

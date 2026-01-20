@@ -1,4 +1,4 @@
-import { api, SensorReading } from '@/lib/api';
+import { api, SensorReading, Socket } from '@/lib/api';
 import { 
   OutletData, 
   splitSensorDataByOutlet, 
@@ -43,30 +43,70 @@ const COLORS = {
   textLight: '#666666',
 };
 
+interface SocketWithData {
+  socket: Socket;
+  outletData: OutletData | null;
+  sensorReading: SensorReading | null;
+}
+
 export default function OutletsScreen() {
   const [currentPage, setCurrentPage] = useState(0);
-  const [sensorData, setSensorData] = useState<SensorReading | null>(null);
-  const [outlets, setOutlets] = useState<[OutletData, OutletData] | null>(null);
+  const [sockets, setSockets] = useState<Socket[]>([]);
+  const [socketsWithData, setSocketsWithData] = useState<SocketWithData[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [expandedAccordions, setExpandedAccordions] = useState<{ [key: number]: boolean }>({});
+  const [expandedAccordions, setExpandedAccordions] = useState<{ [key: string]: boolean }>({});
   const [historicalReadings, setHistoricalReadings] = useState<SensorReading[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [commandLoading, setCommandLoading] = useState<string | null>(null);
   const horizontalScrollRef = useRef<ScrollView>(null);
   const { sendCommand: wsSendCommand, isConnected: wsConnected } = useWebSocket();
 
-  const fetchSensorData = useCallback(async () => {
+  const fetchSocketsAndData = useCallback(async () => {
     try {
-      const response = await api.getLatestSensorReading();
-      if (response.data?.reading) {
-        setSensorData(response.data.reading);
-        // Split data by outlet (assuming breakers are both ON by default)
-        const outletData = splitSensorDataByOutlet(response.data.reading, true, true);
-        setOutlets(outletData);
+      // Fetch sockets from database
+      const socketsResponse = await api.getSockets();
+      if (socketsResponse.data?.sockets) {
+        setSockets(socketsResponse.data.sockets);
+        
+        // For each socket, get sensor data from associated devices
+        const socketsData: SocketWithData[] = [];
+        
+        for (const socket of socketsResponse.data.sockets) {
+          // Get sensor readings for devices associated with this socket
+          let latestReading: SensorReading | null = null;
+          let outletData: OutletData | null = null;
+          
+          if (socket.devices && socket.devices.length > 0) {
+            // Get latest reading from the first device (or you could aggregate from all devices)
+            const deviceId = socket.devices[0]?.deviceId;
+            if (deviceId) {
+              const readingResponse = await api.getLatestSensorReading();
+              if (readingResponse.data?.reading && readingResponse.data.reading.deviceId === deviceId) {
+                latestReading = readingResponse.data.reading;
+                // Split data by outlet (assuming breakers are both ON by default)
+                const splitData = splitSensorDataByOutlet(latestReading, true, true);
+                // Use outlet 1 data for this socket (you could map sockets to outlets differently)
+                outletData = splitData[0];
+                outletData.outletNumber = socketsData.length + 1 as 1 | 2;
+              }
+            }
+          }
+          
+          socketsData.push({
+            socket,
+            outletData,
+            sensorReading: latestReading,
+          });
+        }
+        
+        setSocketsWithData(socketsData);
+      } else {
+        setSockets([]);
+        setSocketsWithData([]);
       }
     } catch (error) {
-      console.error('Error fetching sensor data:', error);
+      console.error('Error fetching sockets and sensor data:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -74,13 +114,14 @@ export default function OutletsScreen() {
   }, []);
 
   const fetchHistoricalData = useCallback(async () => {
-    if (!sensorData?.deviceId) return;
+    const currentSocket = socketsWithData[currentPage];
+    if (!currentSocket?.sensorReading?.deviceId) return;
     
     setLoadingHistory(true);
     try {
       const response = await api.getSensorReadings({ 
         limit: 50, 
-        deviceId: sensorData.deviceId 
+        deviceId: currentSocket.sensorReading.deviceId 
       });
       if (response.data?.readings) {
         setHistoricalReadings(response.data.readings);
@@ -90,40 +131,41 @@ export default function OutletsScreen() {
     } finally {
       setLoadingHistory(false);
     }
-  }, [sensorData?.deviceId]);
+  }, [socketsWithData, currentPage]);
 
   useEffect(() => {
-    fetchSensorData();
+    fetchSocketsAndData();
     // Refresh every 30 seconds
-    const interval = setInterval(fetchSensorData, 30000);
+    const interval = setInterval(fetchSocketsAndData, 30000);
     return () => clearInterval(interval);
-  }, [fetchSensorData]);
+  }, [fetchSocketsAndData]);
 
   useEffect(() => {
-    if (sensorData) {
+    if (socketsWithData.length > 0 && socketsWithData[currentPage]) {
       fetchHistoricalData();
     }
-  }, [sensorData, fetchHistoricalData]);
+  }, [socketsWithData, currentPage, fetchHistoricalData]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchSensorData();
-  }, [fetchSensorData]);
+    fetchSocketsAndData();
+  }, [fetchSocketsAndData]);
 
   const sendCommand = useCallback(async (command: string) => {
-    if (!sensorData?.deviceId) {
+    const currentSocket = socketsWithData[currentPage];
+    if (!currentSocket?.sensorReading?.deviceId) {
       console.log('No device available');
       return;
     }
 
     setCommandLoading(command);
     try {
-      const success = wsSendCommand(sensorData.deviceId, command);
+      const success = wsSendCommand(currentSocket.sensorReading.deviceId, command);
       if (success) {
-        console.log(`✅ Command sent: ${command} to device: ${sensorData.deviceId}`);
+        console.log(`✅ Command sent: ${command} to device: ${currentSocket.sensorReading.deviceId}`);
         // Refresh data after a short delay to get updated breaker state
         setTimeout(() => {
-          fetchSensorData();
+          fetchSocketsAndData();
         }, 1000);
       } else {
         console.error(`❌ Failed to send command: ${command}`);
@@ -133,7 +175,7 @@ export default function OutletsScreen() {
     } finally {
       setCommandLoading(null);
     }
-  }, [sensorData?.deviceId, wsSendCommand, fetchSensorData]);
+  }, [socketsWithData, currentPage, wsSendCommand, fetchSocketsAndData]);
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offsetX = event.nativeEvent.contentOffset.x;
@@ -141,10 +183,10 @@ export default function OutletsScreen() {
     setCurrentPage(page);
   };
 
-  const toggleAccordion = (outletNumber: number) => {
+  const toggleAccordion = (socketId: string) => {
     setExpandedAccordions(prev => ({
       ...prev,
-      [outletNumber]: !prev[outletNumber],
+      [socketId]: !prev[socketId],
     }));
   };
 
@@ -184,19 +226,22 @@ export default function OutletsScreen() {
     });
   };
 
-  const renderOutletIllustration = (outlet: OutletData) => {
-    // Different colors for outlet 2 (darker)
-    const isOutlet2 = outlet.outletNumber === 2;
-    const primaryColor = isOutlet2 ? '#D6732A' : COLORS.primary; // Darker orange for outlet 2
-    const primaryLightColor = isOutlet2 ? '#C85F1A' : COLORS.primaryLight; // Darker for outlet 2
-    const primaryLighterColor = isOutlet2 ? '#B84D0A' : COLORS.primaryLighter; // Darker for outlet 2
+  const renderOutletIllustration = (socketWithData: SocketWithData, index: number) => {
+    // Different colors for different sockets (darker for later sockets)
+    const isEven = index % 2 === 1;
+    const primaryColor = isEven ? '#D6732A' : COLORS.primary;
+    const primaryLightColor = isEven ? '#C85F1A' : COLORS.primaryLight;
+    const primaryLighterColor = isEven ? '#B84D0A' : COLORS.primaryLighter;
     
     return (
-      <View key={outlet.outletNumber} style={styles.outletCardContainer}>
+      <View key={socketWithData.socket.id} style={styles.outletCardContainer}>
         <View style={styles.outletCard}>
           <Text style={styles.outletTitle}>
-            Outlet {outlet.outletNumber} ({getOutletName(outlet.outletNumber)})
+            {socketWithData.socket.name}
           </Text>
+          {socketWithData.socket.location && (
+            <Text style={styles.outletLocation}>{socketWithData.socket.location}</Text>
+          )}
           
           {/* Large Outlet Illustration */}
           <View style={styles.illustrationContainer}>
@@ -217,8 +262,20 @@ export default function OutletsScreen() {
     );
   };
 
-  const renderOutletStatus = (outlet: OutletData) => {
-    const isExpanded = expandedAccordions[outlet.outletNumber] || false;
+  const renderOutletStatus = (socketWithData: SocketWithData) => {
+    if (!socketWithData.outletData) {
+      return (
+        <View style={styles.statusCard}>
+          <View style={styles.noDataContainer}>
+            <Ionicons name="cloud-offline" size={32} color={COLORS.textLight} />
+            <Text style={styles.noDataText}>No sensor data available for this socket</Text>
+          </View>
+        </View>
+      );
+    }
+    
+    const outlet = socketWithData.outletData;
+    const isExpanded = expandedAccordions[socketWithData.socket.id] || false;
     const waterStatus = getWaterStatus(outlet.waterSensors);
     const tempStatus = getTempStatus(outlet.temperature);
     const movementStatus = getMovementStatus(outlet.movement);
@@ -226,7 +283,7 @@ export default function OutletsScreen() {
     return (
       <>
         {/* Analytics Chart - Above Status */}
-        {sensorData && (
+        {socketWithData.sensorReading && (
           <OutletChart
             outletNumber={outlet.outletNumber}
             deviceId={outlet.deviceId}
@@ -236,7 +293,7 @@ export default function OutletsScreen() {
         )}
 
         <View style={styles.statusCard}>
-          {!sensorData ? (
+          {!socketWithData.outletData ? (
             <View style={styles.noDataContainer}>
               <Ionicons name="cloud-offline" size={32} color={COLORS.textLight} />
               <Text style={styles.noDataText}>No sensor data</Text>

@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { notificationService } from '@/services/notifications';
 
 const TOKEN_KEY = 'auth_token';
@@ -15,9 +15,29 @@ const getWebSocketUrl = () => {
 };
 const WS_URL = getWebSocketUrl();
 
-export function useWebSocket() {
+interface TelemetryMessage {
+  deviceId: string;
+  messageType: 'sensor_reading' | 'alert' | 'power_status' | 'alert_cleared';
+  payload: any;
+  receivedAt: string;
+}
+
+interface UseWebSocketOptions {
+  onTelemetry?: (data: TelemetryMessage) => void;
+}
+
+export function useWebSocket(options?: UseWebSocketOptions) {
   const [isConnected, setIsConnected] = useState(false);
   const [ws, setWs] = useState<WebSocket | null>(null);
+  const { onTelemetry } = options || {};
+  
+  // Use ref to store the latest callback so we don't need to recreate the connection
+  const onTelemetryRef = useRef(onTelemetry);
+  
+  // Update ref when callback changes
+  useEffect(() => {
+    onTelemetryRef.current = onTelemetry;
+  }, [onTelemetry]);
 
   useEffect(() => {
     let websocket: WebSocket | null = null;
@@ -59,6 +79,13 @@ export function useWebSocket() {
             setWs(null);
           }
           
+          // Don't retry on authentication errors (4001, 4002, 4004) or normal closure (1000)
+          const authErrorCodes = [4001, 4002, 4004];
+          if (authErrorCodes.includes(event.code)) {
+            console.warn('🔌 WebSocket: Authentication error - not retrying. Please refresh token.');
+            return;
+          }
+          
           // Attempt to reconnect after 3 seconds if not a normal closure
           if (event.code !== 1000 && isMounted) {
             reconnectTimeout = setTimeout(() => {
@@ -86,8 +113,14 @@ export function useWebSocket() {
             } else if (message.type === 'telemetry') {
               console.log('📊 WebSocket: Telemetry data received');
               
-              // Check if this is an alert message and trigger notification
               const telemetryData = message.data;
+              
+              // Call the optional telemetry callback if provided (use ref to get latest)
+              if (onTelemetryRef.current && telemetryData) {
+                onTelemetryRef.current(telemetryData);
+              }
+              
+              // Check if this is an alert message and trigger notification
               if (telemetryData && telemetryData.messageType === 'alert') {
                 const alertPayload = telemetryData.payload;
                 if (alertPayload && alertPayload.alert) {
@@ -134,7 +167,7 @@ export function useWebSocket() {
         websocket.close();
       }
     };
-  }, []);
+  }, []); // Empty deps - connection is created once, callback is accessed via ref
 
   const sendCommand = useCallback((deviceId: string, command: string): boolean => {
     console.log(`📤 WebSocket: Attempting to send command "${command}" to device "${deviceId}"`);

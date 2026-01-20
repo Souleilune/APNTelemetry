@@ -76,6 +76,20 @@ export interface SensorReading {
   receivedAt: string;
 }
 
+// Socket interface
+export interface Socket {
+  id: string;
+  name: string;
+  location?: string;
+  createdAt: string;
+  updatedAt: string;
+  devices: Array<{
+    id: string;
+    deviceId: string;
+    name?: string;
+  }>;
+}
+
 class ApiClient {
   private baseURL: string;  
 
@@ -309,6 +323,27 @@ class ApiClient {
   async archiveAlert(alertId: string): Promise<ApiResponse<{ message: string; alert: { id: string; alertType: string; archivedAt: string } }>> {
     return this.request<{ message: string; alert: { id: string; alertType: string; archivedAt: string } }>(`/api/telemetry/alerts/${alertId}/archive`, {
       method: 'POST',
+    });
+  }
+
+  // Socket endpoints
+  async scanForSensors(socketName: string): Promise<ApiResponse<{ sensors: Array<{ id: string; deviceId: string; name?: string; type?: string }> }>> {
+    return this.request<{ sensors: Array<{ id: string; deviceId: string; name?: string; type?: string }> }>('/api/telemetry/sockets/scan', {
+      method: 'POST',
+      body: JSON.stringify({ socketName }),
+    });
+  }
+
+  async getSockets(): Promise<ApiResponse<{ sockets: Socket[] }>> {
+    return this.request<{ sockets: Socket[] }>('/api/telemetry/sockets', {
+      method: 'GET',
+    });
+  }
+
+  async createSocket(socketName: string, location?: string, sensorIds?: string[]): Promise<ApiResponse<{ message: string; socket: { id: string; name: string; location?: string; createdAt: string } }>> {
+    return this.request<{ message: string; socket: { id: string; name: string; location?: string; createdAt: string } }>('/api/telemetry/sockets', {
+      method: 'POST',
+      body: JSON.stringify({ socketName, location, sensorIds }),
     });
   }
 }

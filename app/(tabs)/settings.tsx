@@ -221,12 +221,17 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          {/* Outlets Connected Section */}
+          {/* Add Socket Section */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Outlets Connected</Text>
-            <View style={styles.connectedCard}>
-              <Text style={styles.connectedText}>Two via bluetooth</Text>
-            </View>
+            <Text style={styles.sectionTitle}>ESP32</Text>
+            <TouchableOpacity
+              style={styles.addSocketButton}
+              onPress={() => router.push('/add-socket' as any)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="add-circle-outline" size={24} color={COLORS.primary} />
+              <Text style={styles.addSocketText}>Pair ESP32</Text>
+            </TouchableOpacity>
           </View>
 
           {/* Reset Password Section */}
@@ -470,16 +475,22 @@ const styles = StyleSheet.create({
   buttonDisabled: {
     opacity: 0.6,
   },
-  connectedCard: {
+  addSocketButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: COLORS.white,
     borderRadius: 16,
     padding: 20,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    borderStyle: 'dashed',
   },
-  connectedText: {
-    fontSize: 15,
-    color: COLORS.textDark,
+  addSocketText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.primary,
+    marginLeft: 8,
   },
   inputContainer: {
     flexDirection: 'row',
