@@ -217,6 +217,20 @@ class ApiClient {
     });
   }
 
+  async updateProfile(fullName: string): Promise<ApiResponse<{ message: string; user: AuthResponse['user'] }>> {
+    return this.request<{ message: string; user: AuthResponse['user'] }>('/api/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ fullName }),
+    });
+  }
+
+  async changePassword(oldPassword: string, newPassword: string): Promise<ApiResponse<{ message: string }>> {
+    return this.request<{ message: string }>('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ oldPassword, newPassword }),
+    });
+  }
+
   // FIX 2: Add proper generic type for refresh response
   async refreshToken(): Promise<ApiResponse<AuthResponse>> {
     try {
