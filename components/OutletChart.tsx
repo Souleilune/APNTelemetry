@@ -35,14 +35,36 @@ export function OutletChart({ outletNumber, deviceId, readings, loading }: Outle
     );
   }
 
-  if (!readings || readings.length === 0) {
-    return (
-      <View style={styles.chartContainer}>
-        <Ionicons name="bar-chart-outline" size={32} color="#999" />
-        <Text style={styles.noDataText}>No chart data available</Text>
-      </View>
-    );
-  }
+  // Generate dummy zero-value data when no readings are available
+  const generateEmptyReadings = (): SensorReading[] => {
+    const emptyReadings: SensorReading[] = [];
+    const now = new Date();
+    const dataPoints = 12; // Generate 12 data points
+    
+    for (let i = dataPoints - 1; i >= 0; i--) {
+      const timestamp = new Date(now.getTime() - i * 2 * 60 * 60 * 1000); // 2 hours apart
+      emptyReadings.push({
+        id: `empty-${i}`,
+        deviceId: deviceId || '',
+        water: [0, 0, 0, 0],
+        gas: false,
+        temperature: {
+          temp1: 0,
+          temp2: 0,
+        },
+        gyro: {
+          movement: 0,
+        },
+        power: null,
+        receivedAt: timestamp.toISOString(),
+      });
+    }
+    
+    return emptyReadings;
+  };
+
+  // Use actual readings or generate empty ones
+  const chartReadings = (!readings || readings.length === 0) ? generateEmptyReadings() : readings;
 
   // Format labels helper
   const formatLabels = (labels: string[]): string[] => {
@@ -53,7 +75,7 @@ export function OutletChart({ outletNumber, deviceId, readings, loading }: Outle
 
   // Prepare data for charts - now zone-based detection (boolean: 0 or 1)
   const prepareWaterData = () => {
-    const recentReadings = readings.slice(0, 30).reverse();
+    const recentReadings = chartReadings.slice(0, 30).reverse();
     const labels: string[] = [];
     const zoneData: number[] = []; // Single dataset for zone detection (0 or 1)
 
@@ -89,7 +111,7 @@ export function OutletChart({ outletNumber, deviceId, readings, loading }: Outle
   };
 
   const prepareTemperatureData = () => {
-    const recentReadings = readings.slice(0, 30).reverse();
+    const recentReadings = chartReadings.slice(0, 30).reverse();
     const labels: string[] = [];
     const tempData: number[] = [];
 
@@ -209,9 +231,9 @@ export function OutletChart({ outletNumber, deviceId, readings, loading }: Outle
       {/* Chart */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <LineChart
-          key={selectedChart + readings.length}
+          key={selectedChart + chartReadings.length}
           data={chartData}
-          width={Math.max(CHART_WIDTH, readings.length * 40)}
+          width={Math.max(CHART_WIDTH, chartReadings.length * 40)}
           height={220}
           chartConfig={chartConfig}
           bezier

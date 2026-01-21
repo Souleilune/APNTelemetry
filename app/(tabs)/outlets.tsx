@@ -263,213 +263,209 @@ export default function OutletsScreen() {
   };
 
   const renderOutletStatus = (socketWithData: SocketWithData) => {
-    if (!socketWithData.outletData) {
-      return (
-        <View style={styles.statusCard}>
-          <View style={styles.noDataContainer}>
-            <Ionicons name="cloud-offline" size={32} color={COLORS.textLight} />
-            <Text style={styles.noDataText}>No sensor data available for this socket</Text>
-          </View>
-        </View>
-      );
-    }
-    
     const outlet = socketWithData.outletData;
     const isExpanded = expandedAccordions[socketWithData.socket.id] || false;
-    const waterStatus = getWaterStatus(outlet.waterSensors);
-    const tempStatus = getTempStatus(outlet.temperature);
-    const movementStatus = getMovementStatus(outlet.movement);
+    
+    // Get default values when outletData is null
+    const outletNumber = outlet?.outletNumber || 1;
+    const deviceId = outlet?.deviceId || (socketWithData.socket.devices && socketWithData.socket.devices.length > 0 
+      ? socketWithData.socket.devices[0].deviceId 
+      : '');
+    
+    // Get status values or defaults
+    const waterStatus = outlet ? getWaterStatus(outlet.waterSensors) : { status: 'N/A', color: '#666666' };
+    const tempStatus = outlet ? getTempStatus(outlet.temperature) : { status: 'N/A', color: '#666666' };
+    const movementStatus = outlet ? getMovementStatus(outlet.movement) : { status: 'N/A', color: '#666666' };
 
     return (
       <>
-        {/* Analytics Chart - Above Status */}
-        {socketWithData.sensorReading && (
-          <OutletChart
-            outletNumber={outlet.outletNumber}
-            deviceId={outlet.deviceId}
-            readings={historicalReadings}
-            loading={loadingHistory}
-          />
-        )}
+        {/* Analytics Chart - Always shown, even when no sensor data */}
+        <OutletChart
+          outletNumber={outletNumber}
+          deviceId={deviceId}
+          readings={outlet ? historicalReadings : []}
+          loading={loadingHistory}
+        />
 
         <View style={styles.statusCard}>
-          {!socketWithData.outletData ? (
-            <View style={styles.noDataContainer}>
-              <Ionicons name="cloud-offline" size={32} color={COLORS.textLight} />
-              <Text style={styles.noDataText}>No sensor data</Text>
-            </View>
-          ) : (
-            <View style={styles.sensorGrid}>
-                {/* Water Sensors - Accordion */}
-                <TouchableOpacity
-                  style={styles.sensorRow}
-                  onPress={() => toggleAccordion(outlet.outletNumber)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.sensorItem}>
-                    <View style={[styles.sensorIconBg, { backgroundColor: '#2196F320' }]}>
-                      <Ionicons name="water" size={20} color="#2196F3" />
-                    </View>
-                    <View style={styles.sensorInfo}>
-                      <Text style={styles.sensorLabel}>Water Detection - Zone {outlet.outletNumber}</Text>
-                      {!isExpanded && (
-                        <Text style={styles.sensorValue}>
-                          {formatWaterValue(outlet.waterSensors[0])}
-                        </Text>
-                      )}
-                    </View>
-                    <View style={[styles.statusBadge, { backgroundColor: waterStatus.color + '20' }]}>
-                      <Text style={[styles.statusBadgeText, { color: waterStatus.color }]}>
-                        {waterStatus.status}
-                      </Text>
-                    </View>
-                    <Ionicons 
-                      name={isExpanded ? "chevron-up" : "chevron-down"} 
-                      size={20} 
-                      color={COLORS.textLight} 
-                      style={{ marginLeft: 8 }}
-                    />
-                  </View>
-                </TouchableOpacity>
-
-                {/* Expanded Water Sensor Details */}
-                {isExpanded && (
-                  <View style={styles.accordionContent}>
-                    <View style={styles.subSensorRow}>
-                      <Text style={styles.subSensorLabel}>Zone {outlet.outletNumber} Status:</Text>
-                      <Text style={styles.subSensorValue}>
-                        {(() => {
-                          const waterValue = outlet.waterSensors[0];
-                          return formatWaterValue(waterValue);
-                        })()}
-                      </Text>
-                    </View>
-                    <View style={styles.subSensorRow}>
-                      <Text style={styles.subSensorLabel}>Sensors:</Text>
-                      <Text style={styles.subSensorValue}>
-                        {outlet.outletNumber === 1 ? '1 & 2' : '3 & 4'}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-
-                {/* Temperature */}
-                <View style={styles.sensorRow}>
-                  <View style={styles.sensorItem}>
-                    <View style={[styles.sensorIconBg, { backgroundColor: '#F4433620' }]}>
-                      <Ionicons name="thermometer" size={20} color="#F44336" />
-                    </View>
-                    <View style={styles.sensorInfo}>
-                      <Text style={styles.sensorLabel}>Temperature</Text>
-                      <Text style={styles.sensorValue}>
-                        {outlet.temperature?.toFixed(1) || 'N/A'}°C
-                      </Text>
-                    </View>
-                    <View style={[styles.statusBadge, { backgroundColor: tempStatus.color + '20' }]}>
-                      <Text style={[styles.statusBadgeText, { color: tempStatus.color }]}>
-                        {tempStatus.status}
-                      </Text>
-                    </View>
-                  </View>
+          <View style={styles.sensorGrid}>
+            {/* Water Sensors - Accordion */}
+            <TouchableOpacity
+              style={styles.sensorRow}
+              onPress={() => toggleAccordion(socketWithData.socket.id)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.sensorItem}>
+                <View style={[styles.sensorIconBg, { backgroundColor: '#2196F320' }]}>
+                  <Ionicons name="water" size={20} color="#2196F3" />
                 </View>
-
-                {/* Breaker */}
-                <View style={styles.sensorRow}>
-                  <View style={styles.sensorItem}>
-                    <View style={[styles.sensorIconBg, { backgroundColor: '#FFC10720' }]}>
-                      <Ionicons name="flash" size={20} color="#FFC107" />
-                    </View>
-                    <View style={styles.sensorInfo}>
-                      <Text style={styles.sensorLabel}>Breaker {outlet.outletNumber}</Text>
-                      <Text style={styles.sensorValue}>
-                        {outlet.breakerState ? 'ON' : 'OFF'}
-                      </Text>
-                    </View>
-                    <View style={[styles.statusBadge, { backgroundColor: outlet.breakerState ? COLORS.success + '20' : COLORS.danger + '20' }]}>
-                      <Text style={[styles.statusBadgeText, { color: outlet.breakerState ? COLORS.success : COLORS.danger }]}>
-                        {outlet.breakerState ? 'Active' : 'Tripped'}
-                      </Text>
-                    </View>
-                  </View>
+                <View style={styles.sensorInfo}>
+                  <Text style={styles.sensorLabel}>Water Detection - Zone {outletNumber}</Text>
+                  {!isExpanded && (
+                    <Text style={styles.sensorValue}>
+                      {outlet ? formatWaterValue(outlet.waterSensors[0]) : 'Dry'}
+                    </Text>
+                  )}
                 </View>
-
-                {/* Shared Sensors Divider */}
-                <View style={styles.sharedDivider}>
-                  <View style={styles.dividerLine} />
-                  <Text style={styles.dividerText}>Shared (Device-Level)</Text>
-                  <View style={styles.dividerLine} />
+                <View style={[styles.statusBadge, { backgroundColor: waterStatus.color + '20' }]}>
+                  <Text style={[styles.statusBadgeText, { color: waterStatus.color }]}>
+                    {waterStatus.status}
+                  </Text>
                 </View>
+                <Ionicons 
+                  name={isExpanded ? "chevron-up" : "chevron-down"} 
+                  size={20} 
+                  color={COLORS.textLight} 
+                  style={{ marginLeft: 8 }}
+                />
+              </View>
+            </TouchableOpacity>
 
-                {/* Gas Detection - Shared */}
-                <View style={styles.sensorRow}>
-                  <View style={styles.sensorItem}>
-                    <View style={[styles.sensorIconBg, { backgroundColor: '#9C27B020' }]}>
-                      <Ionicons name="cloud" size={20} color="#9C27B0" />
-                    </View>
-                    <View style={styles.sensorInfo}>
-                      <Text style={styles.sensorLabel}>Gas Detection</Text>
-                      <Text style={styles.sensorValue}>
-                        {outlet.gas ? 'Detected!' : 'Not Detected'}
-                      </Text>
-                    </View>
-                    <View style={[styles.statusBadge, { backgroundColor: outlet.gas ? COLORS.danger + '20' : COLORS.success + '20' }]}>
-                      <Text style={[styles.statusBadgeText, { color: outlet.gas ? COLORS.danger : COLORS.success }]}>
-                        {outlet.gas ? 'Alert!' : 'Safe'}
-                      </Text>
-                    </View>
-                  </View>
+            {/* Expanded Water Sensor Details */}
+            {isExpanded && (
+              <View style={styles.accordionContent}>
+                <View style={styles.subSensorRow}>
+                  <Text style={styles.subSensorLabel}>Zone {outletNumber} Status:</Text>
+                  <Text style={styles.subSensorValue}>
+                    {outlet ? formatWaterValue(outlet.waterSensors[0]) : 'Dry'}
+                  </Text>
                 </View>
-
-                {/* Movement - Shared */}
-                <View style={styles.sensorRow}>
-                  <View style={styles.sensorItem}>
-                    <View style={[styles.sensorIconBg, { backgroundColor: '#FF980020' }]}>
-                      <Ionicons name="pulse" size={20} color="#FF9800" />
-                    </View>
-                    <View style={styles.sensorInfo}>
-                      <Text style={styles.sensorLabel}>Movement</Text>
-                      <Text style={styles.sensorValue}>
-                        {outlet.movement?.toFixed(2) || '0.00'}
-                      </Text>
-                    </View>
-                    <View style={[styles.statusBadge, { backgroundColor: movementStatus.color + '20' }]}>
-                      <Text style={[styles.statusBadgeText, { color: movementStatus.color }]}>
-                        {movementStatus.status}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-
-                {/* Power Status - Shared */}
-                {outlet.power && (
-                  <View style={styles.sensorRow}>
-                    <View style={styles.sensorItem}>
-                      <View style={[styles.sensorIconBg, { backgroundColor: '#4CAF5020' }]}>
-                        <Ionicons name="battery-charging" size={20} color="#4CAF50" />
-                      </View>
-                      <View style={styles.sensorInfo}>
-                        <Text style={styles.sensorLabel}>Power Source</Text>
-                        <Text style={styles.sensorValue}>{outlet.power}</Text>
-                      </View>
-                      <View style={[styles.statusBadge, { backgroundColor: outlet.power === 'MAIN' ? COLORS.success + '20' : COLORS.warning + '20' }]}>
-                        <Text style={[styles.statusBadgeText, { color: outlet.power === 'MAIN' ? COLORS.success : COLORS.warning }]}>
-                          {outlet.power === 'MAIN' ? 'OK' : 'Backup'}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                )}
-
-                {/* Last Updated */}
-                <View style={styles.lastUpdated}>
-                  <Ionicons name="time-outline" size={12} color={COLORS.textLight} />
-                  <Text style={styles.lastUpdatedText}>
-                    Last updated: {formatTime(outlet.receivedAt)}
+                <View style={styles.subSensorRow}>
+                  <Text style={styles.subSensorLabel}>Sensors:</Text>
+                  <Text style={styles.subSensorValue}>
+                    {outletNumber === 1 ? '1 & 2' : '3 & 4'}
                   </Text>
                 </View>
               </View>
             )}
+
+            {/* Temperature */}
+            <View style={styles.sensorRow}>
+              <View style={styles.sensorItem}>
+                <View style={[styles.sensorIconBg, { backgroundColor: '#F4433620' }]}>
+                  <Ionicons name="thermometer" size={20} color="#F44336" />
+                </View>
+                <View style={styles.sensorInfo}>
+                  <Text style={styles.sensorLabel}>Temperature</Text>
+                  <Text style={styles.sensorValue}>
+                    {outlet?.temperature?.toFixed(1) || '0.0'}°C
+                  </Text>
+                </View>
+                <View style={[styles.statusBadge, { backgroundColor: tempStatus.color + '20' }]}>
+                  <Text style={[styles.statusBadgeText, { color: tempStatus.color }]}>
+                    {tempStatus.status}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Breaker */}
+            <View style={styles.sensorRow}>
+              <View style={styles.sensorItem}>
+                <View style={[styles.sensorIconBg, { backgroundColor: '#FFC10720' }]}>
+                  <Ionicons name="flash" size={20} color="#FFC107" />
+                </View>
+                <View style={styles.sensorInfo}>
+                  <Text style={styles.sensorLabel}>Breaker {outletNumber}</Text>
+                  <Text style={styles.sensorValue}>
+                    {outlet ? (outlet.breakerState ? 'ON' : 'OFF') : 'ON'}
+                  </Text>
+                </View>
+                <View style={[styles.statusBadge, { backgroundColor: (outlet?.breakerState ?? true) ? COLORS.success + '20' : COLORS.danger + '20' }]}>
+                  <Text style={[styles.statusBadgeText, { color: (outlet?.breakerState ?? true) ? COLORS.success : COLORS.danger }]}>
+                    {(outlet?.breakerState ?? true) ? 'Active' : 'Tripped'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Shared Sensors Divider */}
+            <View style={styles.sharedDivider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>Shared (Device-Level)</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {/* Gas Detection - Shared */}
+            <View style={styles.sensorRow}>
+              <View style={styles.sensorItem}>
+                <View style={[styles.sensorIconBg, { backgroundColor: '#9C27B020' }]}>
+                  <Ionicons name="cloud" size={20} color="#9C27B0" />
+                </View>
+                <View style={styles.sensorInfo}>
+                  <Text style={styles.sensorLabel}>Gas Detection</Text>
+                  <Text style={styles.sensorValue}>
+                    {outlet ? (outlet.gas ? 'Detected!' : 'Not Detected') : 'Not Detected'}
+                  </Text>
+                </View>
+                <View style={[styles.statusBadge, { backgroundColor: (outlet?.gas ?? false) ? COLORS.danger + '20' : COLORS.success + '20' }]}>
+                  <Text style={[styles.statusBadgeText, { color: (outlet?.gas ?? false) ? COLORS.danger : COLORS.success }]}>
+                    {(outlet?.gas ?? false) ? 'Alert!' : 'Safe'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Movement - Shared */}
+            <View style={styles.sensorRow}>
+              <View style={styles.sensorItem}>
+                <View style={[styles.sensorIconBg, { backgroundColor: '#FF980020' }]}>
+                  <Ionicons name="pulse" size={20} color="#FF9800" />
+                </View>
+                <View style={styles.sensorInfo}>
+                  <Text style={styles.sensorLabel}>Movement</Text>
+                  <Text style={styles.sensorValue}>
+                    {outlet?.movement?.toFixed(2) || '0.00'}
+                  </Text>
+                </View>
+                <View style={[styles.statusBadge, { backgroundColor: movementStatus.color + '20' }]}>
+                  <Text style={[styles.statusBadgeText, { color: movementStatus.color }]}>
+                    {movementStatus.status}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {/* Power Status - Shared */}
+            {outlet?.power && (
+              <View style={styles.sensorRow}>
+                <View style={styles.sensorItem}>
+                  <View style={[styles.sensorIconBg, { backgroundColor: '#4CAF5020' }]}>
+                    <Ionicons name="battery-charging" size={20} color="#4CAF50" />
+                  </View>
+                  <View style={styles.sensorInfo}>
+                    <Text style={styles.sensorLabel}>Power Source</Text>
+                    <Text style={styles.sensorValue}>{outlet.power}</Text>
+                  </View>
+                  <View style={[styles.statusBadge, { backgroundColor: outlet.power === 'MAIN' ? COLORS.success + '20' : COLORS.warning + '20' }]}>
+                    <Text style={[styles.statusBadgeText, { color: outlet.power === 'MAIN' ? COLORS.success : COLORS.warning }]}>
+                      {outlet.power === 'MAIN' ? 'OK' : 'Backup'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            )}
+
+            {/* Last Updated */}
+            {outlet && (
+              <View style={styles.lastUpdated}>
+                <Ionicons name="time-outline" size={12} color={COLORS.textLight} />
+                <Text style={styles.lastUpdatedText}>
+                  Last updated: {formatTime(outlet.receivedAt)}
+                </Text>
+              </View>
+            )}
           </View>
+          </View>
+          
+          {/* Note when sensors are not detected */}
+          {!outlet && (
+            <View style={styles.sensorNoteContainer}>
+              <Text style={styles.sensorNoteText}>
+                Sensors are not detected or not set correctly.
+              </Text>
+            </View>
+          )}
       </>
     );
   };
@@ -487,7 +483,7 @@ export default function OutletsScreen() {
             <ActivityIndicator size="large" color={COLORS.primary} />
             <Text style={styles.loadingText}>Loading outlets...</Text>
           </View>
-        ) : !outlets ? (
+        ) : socketsWithData.length === 0 ? (
           <View style={styles.noDataContainer}>
             <Ionicons name="cloud-offline" size={64} color={COLORS.textLight} />
             <Text style={styles.noDataText}>No outlets available</Text>
@@ -519,13 +515,14 @@ export default function OutletsScreen() {
                 style={styles.horizontalScrollView}
                 contentContainerStyle={styles.horizontalScrollContent}
               >
-                {renderOutletIllustration(outlets[0])}
-                {renderOutletIllustration(outlets[1])}
+                {socketsWithData.map((socketWithData, index) => 
+                  renderOutletIllustration(socketWithData, index)
+                )}
               </ScrollView>
 
               {/* Pagination Dots */}
               <View style={styles.paginationContainer}>
-                {[0, 1].map((index) => (
+                {socketsWithData.map((_, index) => (
                   <TouchableOpacity
                     key={index}
                     onPress={() => {
@@ -545,58 +542,64 @@ export default function OutletsScreen() {
             </View>
 
             {/* Outlet Status Section - Shows current outlet's status */}
-            <View style={styles.statusSection}>
-              <Text style={styles.statusTitle}>
-                Outlet {outlets[currentPage].outletNumber} Status
-              </Text>
-              {renderOutletStatus(outlets[currentPage])}
-            </View>
-
-            {/* Power Control Button - Shows for current outlet */}
-            {outlets && (
-              <View style={styles.powerControlSection}>
-                <Text style={styles.sectionTitle}>Power Control</Text>
-                <View style={styles.insightsGrid}>
-                  <TouchableOpacity
-                    style={[
-                      styles.insightCard,
-                      currentPage === 0 ? styles.outlet1Card : styles.outlet2Card,
-                      (!wsConnected || commandLoading !== null) && styles.powerButtonDisabled,
-                    ]}
-                    onPress={() => {
-                      const currentOutlet = outlets[currentPage];
-                      const command = currentOutlet.breakerState 
-                        ? (currentPage === 0 ? 'BREAKER1_OFF' : 'BREAKER2_OFF')
-                        : (currentPage === 0 ? 'BREAKER1_ON' : 'BREAKER2_ON');
-                      sendCommand(command);
-                    }}
-                    disabled={!wsConnected || commandLoading !== null}
-                    activeOpacity={0.7}
-                  >
-                    {(commandLoading === 'BREAKER1_ON' || commandLoading === 'BREAKER1_OFF' || 
-                      commandLoading === 'BREAKER2_ON' || commandLoading === 'BREAKER2_OFF') ? (
-                      <ActivityIndicator 
-                        size="large" 
-                        color={currentPage === 0 ? '#2196F3' : '#9C27B0'} 
-                      />
-                    ) : (
-                      <>
-                        <View style={styles.insightIconBg}>
-                          <Ionicons
-                            name="power"
-                            size={32}
-                            color={currentPage === 0 ? '#2196F3' : '#9C27B0'}
-                          />
-                        </View>
-                        <Text style={styles.insightTitle}>Power</Text>
-                        <Text style={styles.insightSubtitle}>
-                          Outlet {outlets[currentPage].outletNumber} {outlets[currentPage].breakerState ? 'OFF' : 'ON'}
-                        </Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
+            {socketsWithData[currentPage] && (
+              <>
+                <View style={styles.statusSection}>
+                  <Text style={styles.statusTitle}>
+                    {socketsWithData[currentPage].socket.name} Status
+                  </Text>
+                  {renderOutletStatus(socketsWithData[currentPage])}
                 </View>
-              </View>
+
+                {/* Power Control Button - Always shown for current socket */}
+                <View style={styles.powerControlSection}>
+                  <Text style={styles.sectionTitle}>Power Control</Text>
+                  <View style={styles.insightsGrid}>
+                    <TouchableOpacity
+                      style={[
+                        styles.insightCard,
+                        (socketsWithData[currentPage].outletData?.outletNumber || 1) === 1 ? styles.outlet1Card : styles.outlet2Card,
+                        (!wsConnected || commandLoading !== null) && styles.powerButtonDisabled,
+                      ]}
+                      onPress={() => {
+                        const currentSocket = socketsWithData[currentPage];
+                        const outletNumber = currentSocket.outletData?.outletNumber || 1;
+                        const breakerState = currentSocket.outletData?.breakerState ?? true; // Default to ON if unknown
+                        const command = breakerState 
+                          ? (outletNumber === 1 ? 'BREAKER1_OFF' : 'BREAKER2_OFF')
+                          : (outletNumber === 1 ? 'BREAKER1_ON' : 'BREAKER2_ON');
+                        sendCommand(command);
+                      }}
+                      disabled={!wsConnected || commandLoading !== null}
+                      activeOpacity={0.7}
+                    >
+                      {(commandLoading === 'BREAKER1_ON' || commandLoading === 'BREAKER1_OFF' || 
+                        commandLoading === 'BREAKER2_ON' || commandLoading === 'BREAKER2_OFF') ? (
+                        <ActivityIndicator 
+                          size="large" 
+                          color={(socketsWithData[currentPage].outletData?.outletNumber || 1) === 1 ? '#2196F3' : '#9C27B0'} 
+                        />
+                      ) : (
+                        <>
+                          <View style={styles.insightIconBg}>
+                            <Ionicons
+                              name="power"
+                              size={32}
+                              color={(socketsWithData[currentPage].outletData?.outletNumber || 1) === 1 ? '#2196F3' : '#9C27B0'}
+                            />
+                          </View>
+                          <Text style={styles.insightTitle}>Power</Text>
+                          <Text style={styles.insightSubtitle}>
+                            {socketsWithData[currentPage].outletData 
+                              ? `Outlet ${socketsWithData[currentPage].outletData.outletNumber} ${socketsWithData[currentPage].outletData.breakerState ? 'ON' : 'OFF'}`
+                              : 'Socket Control'}
+                          </Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </>
             )}
           </ScrollView>
         )}
@@ -695,6 +698,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#333333',
     marginBottom: 24,
+  },
+  outletLocation: {
+    fontSize: 14,
+    color: COLORS.textLight,
+    marginTop: 4,
+    marginBottom: 16,
   },
   illustrationContainer: {
     width: 180,
@@ -986,5 +995,17 @@ const styles = StyleSheet.create({
   },
   powerButtonDisabled: {
     opacity: 0.5,
+  },
+  sensorNoteContainer: {
+    marginTop: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  sensorNoteText: {
+    fontSize: 12,
+    color: COLORS.textLight,
+    fontStyle: 'italic',
+    textAlign: 'center',
   },
 });

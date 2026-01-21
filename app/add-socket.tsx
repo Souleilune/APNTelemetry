@@ -176,7 +176,7 @@ export default function AddSocketScreen() {
           </View>
 
           {/* Location Input */}
-          <View style={styles.section}>
+          {/* <View style={styles.section}>
             <Text style={styles.sectionTitle}>Location</Text>
             <View style={styles.inputContainer}>
               <Ionicons
@@ -195,7 +195,7 @@ export default function AddSocketScreen() {
                 editable={!scanning && !saving}
               />
             </View>
-          </View>
+          </View> */}
 
            {/* Found Sensors List */}
           {foundSensors.length > 0 && (

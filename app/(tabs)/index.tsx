@@ -581,16 +581,19 @@ export default function HomeScreen() {
           }
         >
           {/* Outlet Cards Section - Carousel */}
-          <View style={styles.outletsSection}>
-            <ScrollView
-              ref={scrollViewRef}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.outletsCarousel}
-              snapToInterval={Platform.OS === 'ios' ? undefined : 0}
-              decelerationRate="fast"
-            >
+          <View style={styles.outletsSectionWrapper}>
+            <View style={styles.outletsSection}>
+              <ScrollView
+                ref={scrollViewRef}
+                horizontal
+                pagingEnabled={false}
+                showsHorizontalScrollIndicator={false}
+                style={styles.outletsScrollView}
+                contentContainerStyle={styles.outletsCarousel}
+                snapToInterval={(Dimensions.get('window').width - 72) / 2 + 12}
+                decelerationRate="fast"
+                snapToAlignment="start"
+              >
               {/* Render socket cards */}
               {sockets.map((socket, index) => (
                 <TouchableOpacity
@@ -624,7 +627,8 @@ export default function HomeScreen() {
                 <Ionicons name="add-circle-outline" size={32} color={COLORS.primary} />
                 <Text style={styles.addSocketLabel}>Add Socket</Text>
               </TouchableOpacity>
-            </ScrollView>
+              </ScrollView>
+            </View>
           </View>
 
           {/* Overall Analytics Section */}
@@ -987,43 +991,52 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingBottom: 100,
   },
-  outletsSection: {
+  outletsSectionWrapper: {
+    marginLeft: -24,
+    marginRight: -24,
     marginBottom: 24,
-    height: 180,
+  },
+  outletsSection: {
+    height: 150,
   },
   outletsCarousel: {
-    paddingHorizontal: 12,
+    paddingLeft: 30,
+    paddingRight: 2,
+    paddingVertical: 1,
+  },
+  outletsScrollView: {
+    height: 150,
   },
   outletCard: {
-    width: Dimensions.get('window').width - 72, // Screen width minus padding (24*2) and gap (12*2)
-    marginHorizontal: 6,
-    minWidth: Dimensions.get('window').width - 72,
+    width: (Dimensions.get('window').width - 64) / 2, // Show 2 cards at once: (screen width - container padding - gap) / 2
+    marginRight: 12,
     backgroundColor: COLORS.cardBg,
     borderRadius: 20,
-    padding: 16,
+    padding: 12,
     alignItems: 'center',
+    justifyContent: 'flex-start',
     ...Platform.select({
       ios: {
         shadowColor: COLORS.shadow,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 6,
       },
       android: {
-        elevation: 4,
+        elevation: 2,
       },
     }),
   },
   outletLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: COLORS.primary,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   outletLocation: {
-    fontSize: 12,
+    fontSize: 11,
     color: COLORS.textLight,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   addSocketCard: {
     justifyContent: 'center',
@@ -1038,12 +1051,13 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   outletIconPlaceholder: {
-    width: 100,
-    height: 100,
+    width: 60,
+    height: 60,
     backgroundColor: COLORS.primary,
-    borderRadius: 16,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: 4,
   },
   outletDisabled: {
     backgroundColor: '#CCCCCC',
@@ -1054,18 +1068,18 @@ const styles = StyleSheet.create({
   },
   eyesRow: {
     flexDirection: 'row',
-    marginBottom: 16,
+    marginBottom: 8,
   },
   eye: {
-    width: 12,
-    height: 28,
+    width: 7,
+    height: 18,
     backgroundColor: COLORS.white,
     borderRadius: 2,
-    marginHorizontal: 10,
+    marginHorizontal: 5,
   },
   mouth: {
-    width: 32,
-    height: 12,
+    width: 20,
+    height: 7,
     backgroundColor: COLORS.white,
     borderRadius: 2,
   },
@@ -1227,6 +1241,7 @@ const styles = StyleSheet.create({
     color: COLORS.textLight,
   },
   analyticsSection: {
+    marginTop: 0,
     marginBottom: 24,
   },
   insightsSection: {
