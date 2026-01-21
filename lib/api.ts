@@ -272,6 +272,47 @@ class ApiClient {
     });
   }
 
+  async unpairDevice(deviceId: string): Promise<ApiResponse<{ message: string; deviceId: string }>> {
+    return this.request<{ message: string; deviceId: string }>(`/api/telemetry/device/${encodeURIComponent(deviceId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Device discovery endpoints
+  async discoverDevicesMQTT(): Promise<ApiResponse<{ devices: Array<{ deviceId: string; name: string; lastSeen: string }>; count: number }>> {
+    // This endpoint doesn't require auth, so we need to make a request without token
+    try {
+      const response = await fetch(`${this.baseURL}/api/telemetry/devices/discover`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          error: data.error || 'Request failed',
+          message: data.message || 'An error occurred',
+        };
+      }
+
+      return { data };
+    } catch (error) {
+      console.error('MQTT discovery error:', error);
+      return {
+        error: 'Network error',
+        message: error instanceof Error ? error.message : 'Failed to connect to server',
+      };
+    }
+  }
+
+  async discoverDevices(): Promise<ApiResponse<{ devices: Array<{ deviceId: string; name: string; lastSeen: string; source?: 'ble' | 'mqtt' }>; count: number }>> {
+    // Try MQTT discovery (BLE will be handled locally in the component)
+    return this.discoverDevicesMQTT();
+  }
+
   async getLatestSensorReading(deviceId?: string): Promise<ApiResponse<{ reading: SensorReading | null }>> {
     const url = deviceId 
       ? `/api/telemetry/sensors/latest?deviceId=${encodeURIComponent(deviceId)}`

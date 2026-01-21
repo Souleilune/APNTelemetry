@@ -239,9 +239,6 @@ export default function OutletsScreen() {
           <Text style={styles.outletTitle}>
             {socketWithData.socket.name}
           </Text>
-          {socketWithData.socket.location && (
-            <Text style={styles.outletLocation}>{socketWithData.socket.location}</Text>
-          )}
           
           {/* Large Outlet Illustration */}
           <View style={styles.illustrationContainer}>
@@ -257,6 +254,10 @@ export default function OutletsScreen() {
               </View>
             </View>
           </View>
+
+          {socketWithData.socket.location && (
+            <Text style={styles.outletLocation}>{socketWithData.socket.location}</Text>
+          )}
         </View>
       </View>
     );
@@ -702,8 +703,8 @@ const styles = StyleSheet.create({
   outletLocation: {
     fontSize: 14,
     color: COLORS.textLight,
-    marginTop: 4,
-    marginBottom: 16,
+    marginTop: 16,
+    textAlign: 'center',
   },
   illustrationContainer: {
     width: 180,
@@ -711,6 +712,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
+    marginTop: 16,
     marginBottom: 20,
   },
   square: {

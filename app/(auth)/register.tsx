@@ -83,16 +83,11 @@ export default function RegisterScreen() {
       if (result.error) {
         Alert.alert('Registration Failed', result.message || 'Please try again');
       } else {
-        Alert.alert(
-          'Success!',
-          'Registration successful! Please sign in.',
-          [
-            {
-              text: 'OK',
-              onPress: () => router.push('/(auth)/sign-in' as any),
-            },
-          ]
-        );
+        // Navigate to scan page with credentials for auto-login
+        router.push({
+          pathname: '/(onboarding)/scan-devices',
+          params: { email, password },
+        } as any);
       }
     } catch (error) {
       Alert.alert('Error', 'An unexpected error occurred');

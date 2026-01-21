@@ -1,8 +1,10 @@
 import { useAuth } from '@/contexts/auth-context';
+import { api, Device } from '@/lib/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+    ActivityIndicator,
     Alert,
     Platform,
     ScrollView,
@@ -21,6 +23,8 @@ const COLORS = {
   textGray: '#999999',
   textDark: '#333333',
   shadow: '#000000',
+  danger: '#F44336',
+  success: '#4CAF50',
 };
 
 export default function SettingsScreen() {
@@ -41,12 +45,79 @@ export default function SettingsScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordLoading, setPasswordLoading] = useState(false);
 
+  // Device management state
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [devicesLoading, setDevicesLoading] = useState(true);
+  const [unpairingDeviceId, setUnpairingDeviceId] = useState<string | null>(null);
+
   // Update editFullName when user changes
   React.useEffect(() => {
     if (user?.fullName) {
       setEditFullName(user.fullName);
     }
   }, [user?.fullName]);
+
+  // Fetch devices on mount
+  useEffect(() => {
+    fetchDevices();
+  }, []);
+
+  const fetchDevices = async () => {
+    setDevicesLoading(true);
+    try {
+      const response = await api.getDevices();
+      if (response.data?.devices) {
+        setDevices(response.data.devices);
+      }
+    } catch (error) {
+      console.error('Error fetching devices:', error);
+    } finally {
+      setDevicesLoading(false);
+    }
+  };
+
+  const handleUnpair = (device: Device) => {
+    Alert.alert(
+      'Unpair Device',
+      `Are you sure you want to unpair "${device.name || device.deviceId}"?\n\nThis device will become available for other users to pair.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Unpair',
+          style: 'destructive',
+          onPress: () => performUnpair(device.deviceId),
+        },
+      ]
+    );
+  };
+
+  const performUnpair = async (deviceId: string) => {
+    setUnpairingDeviceId(deviceId);
+    try {
+      const response = await api.unpairDevice(deviceId);
+      
+      if (response.error) {
+        Alert.alert('Error', response.message || 'Failed to unpair device');
+      } else {
+        Alert.alert('Success', 'Device unpaired successfully');
+        // Refresh device list
+        fetchDevices();
+      }
+    } catch (error) {
+      Alert.alert('Error', 'An unexpected error occurred');
+    } finally {
+      setUnpairingDeviceId(null);
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
 
   const handleUpdateProfile = async () => {
     if (!editFullName.trim()) {
@@ -232,6 +303,77 @@ export default function SettingsScreen() {
               <Ionicons name="add-circle-outline" size={24} color={COLORS.primary} />
               <Text style={styles.addSocketText}>Pair ESP32</Text>
             </TouchableOpacity>
+          </View>
+
+          {/* Paired Devices Section */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Paired Devices</Text>
+            {devicesLoading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color={COLORS.primary} />
+                <Text style={styles.loadingText}>Loading devices...</Text>
+              </View>
+            ) : devices.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="hardware-chip-outline" size={48} color={COLORS.textGray} />
+                <Text style={styles.emptyStateText}>No devices paired yet</Text>
+              </View>
+            ) : (
+              <View style={styles.devicesList}>
+                {devices.map((device) => (
+                  <View key={device.id} style={styles.deviceCard}>
+                    <View style={styles.deviceHeader}>
+                      <View style={styles.deviceIconContainer}>
+                        <Ionicons name="hardware-chip" size={24} color={COLORS.primary} />
+                      </View>
+                      <View style={styles.deviceInfo}>
+                        <Text style={styles.deviceName}>
+                          {device.name || `Device ${device.deviceId.slice(-4)}`}
+                        </Text>
+                        <Text style={styles.deviceId}>ID: {device.deviceId}</Text>
+                        <Text style={styles.deviceDate}>
+                          Paired: {formatDate(device.pairedAt)}
+                        </Text>
+                        <View style={styles.deviceStatus}>
+                          <View
+                            style={[
+                              styles.statusDot,
+                              device.isActive ? styles.statusActive : styles.statusInactive,
+                            ]}
+                          />
+                          <Text
+                            style={[
+                              styles.statusText,
+                              device.isActive ? styles.statusActiveText : styles.statusInactiveText,
+                            ]}
+                          >
+                            {device.isActive ? 'Active' : 'Inactive'}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={[
+                        styles.unpairButton,
+                        unpairingDeviceId === device.deviceId && styles.buttonDisabled,
+                      ]}
+                      onPress={() => handleUnpair(device)}
+                      activeOpacity={0.7}
+                      disabled={unpairingDeviceId === device.deviceId}
+                    >
+                      {unpairingDeviceId === device.deviceId ? (
+                        <ActivityIndicator size="small" color={COLORS.danger} />
+                      ) : (
+                        <>
+                          <Ionicons name="close-circle-outline" size={20} color={COLORS.danger} />
+                          <Text style={styles.unpairButtonText}>Unpair</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
 
           {/* Reset Password Section */}
@@ -545,5 +687,118 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.textGray,
     textDecorationLine: 'underline',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  loadingText: {
+    marginLeft: 12,
+    fontSize: 14,
+    color: COLORS.textGray,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  emptyStateText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: COLORS.textGray,
+    fontFamily: 'Poppins-Regular',
+  },
+  devicesList: {
+    gap: 12,
+  },
+  deviceCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  deviceHeader: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  deviceIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: COLORS.primary + '20',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  deviceInfo: {
+    flex: 1,
+  },
+  deviceName: {
+    fontSize: 16,
+    fontFamily: 'Poppins-SemiBold',
+    color: COLORS.textDark,
+    marginBottom: 4,
+  },
+  deviceId: {
+    fontSize: 12,
+    fontFamily: 'Poppins-Regular',
+    color: COLORS.textGray,
+    marginBottom: 4,
+  },
+  deviceDate: {
+    fontSize: 12,
+    fontFamily: 'Poppins-Regular',
+    color: COLORS.textGray,
+    marginBottom: 8,
+  },
+  deviceStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  statusActive: {
+    backgroundColor: COLORS.success,
+  },
+  statusInactive: {
+    backgroundColor: COLORS.textGray,
+  },
+  statusText: {
+    fontSize: 12,
+    fontFamily: 'Poppins-Regular',
+  },
+  statusActiveText: {
+    color: COLORS.success,
+  },
+  statusInactiveText: {
+    color: COLORS.textGray,
+  },
+  unpairButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.danger,
+    backgroundColor: COLORS.white,
+  },
+  unpairButtonText: {
+    marginLeft: 6,
+    fontSize: 14,
+    fontFamily: 'Poppins-SemiBold',
+    color: COLORS.danger,
   },
 });

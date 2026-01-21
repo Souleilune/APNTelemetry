@@ -165,7 +165,7 @@ export default function AddSocketScreen() {
               />
               <TextInput
                 style={styles.input}
-                placeholder="Enter socket name"
+                placeholder="Enter ESP32 name"
                 placeholderTextColor={COLORS.textGray}
                 value={socketName}
                 onChangeText={setSocketName}
