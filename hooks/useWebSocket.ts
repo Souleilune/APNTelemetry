@@ -3,10 +3,10 @@ import { useCallback, useEffect, useState, useRef } from 'react';
 import { notificationService } from '@/services/notifications';
 
 const TOKEN_KEY = 'auth_token';
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://apnbackend-fv05.onrender.com';
 // Construct WebSocket URL from API URL
 const getWebSocketUrl = () => {
-  const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'https://apnbackend-fv05.onrender.com';
   if (process.env.EXPO_PUBLIC_WS_URL) {
     return process.env.EXPO_PUBLIC_WS_URL;
   }

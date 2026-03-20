@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://apnbackend-fv05.onrender.com';
 
 // Storage keys
 const TOKEN_KEY = 'auth_token';
@@ -83,11 +83,11 @@ export interface Socket {
   location?: string;
   createdAt: string;
   updatedAt: string;
-  devices: Array<{
+  devices: {
     id: string;
     deviceId: string;
     name?: string;
-  }>;
+  }[];
 }
 
 class ApiClient {
