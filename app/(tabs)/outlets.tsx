@@ -71,12 +71,14 @@ export default function OutletsScreen() {
         
         // For each socket, get sensor data from associated devices
         const socketsData: SocketWithData[] = [];
-        
-        for (const socket of socketsResponse.data.sockets) {
-          // Get sensor readings for devices associated with this socket
+
+        // Use an indexed loop so we can map split outlet data to the correct socket index
+        const socketList = socketsResponse.data.sockets;
+        for (let i = 0; i < socketList.length; i++) {
+          const socket = socketList[i];
           let latestReading: SensorReading | null = null;
           let outletData: OutletData | null = null;
-          
+
           if (socket.devices && socket.devices.length > 0) {
             // Get latest reading from the first device (or you could aggregate from all devices)
             const deviceId = socket.devices[0]?.deviceId;
@@ -86,13 +88,19 @@ export default function OutletsScreen() {
                 latestReading = readingResponse.data.reading;
                 // Split data by outlet (assuming breakers are both ON by default)
                 const splitData = splitSensorDataByOutlet(latestReading, true, true);
-                // Use outlet 1 data for this socket (you could map sockets to outlets differently)
-                outletData = splitData[0];
-                outletData.outletNumber = socketsData.length + 1 as 1 | 2;
+                if (splitData && splitData.length > 0) {
+                  // Map the socket index to the appropriate outlet slice. If there are fewer
+                  // outlet entries than sockets, fall back to the first outlet slice.
+                  const outletIndex = i < splitData.length ? i : 0;
+                  outletData = splitData[outletIndex];
+                  if (outletData) {
+                    outletData.outletNumber = (outletIndex + 1) as 1 | 2;
+                  }
+                }
               }
             }
           }
-          
+
           socketsData.push({
             socket,
             outletData,
@@ -153,16 +161,32 @@ export default function OutletsScreen() {
 
   const sendCommand = useCallback(async (command: string) => {
     const currentSocket = socketsWithData[currentPage];
-    if (!currentSocket?.sensorReading?.deviceId) {
-      console.log('No device available');
+    
+    // FIX: Check if socket has devices and get deviceId properly
+    if (!currentSocket?.socket?.devices || currentSocket.socket.devices.length === 0) {
+      console.log('❌ No devices available for this socket');
       return;
     }
 
+    const deviceId = currentSocket.socket.devices[0].deviceId;
+    
+    if (!deviceId) {
+      console.log('❌ No device ID available');
+      return;
+    }
+
+    if (!wsConnected) {
+      console.log('❌ WebSocket not connected');
+      return;
+    }
+
+    console.log(`🔘 Sending command: ${command} to device: ${deviceId}`);
     setCommandLoading(command);
+    
     try {
-      const success = wsSendCommand(currentSocket.sensorReading.deviceId, command);
+      const success = wsSendCommand(deviceId, command);
       if (success) {
-        console.log(`✅ Command sent: ${command} to device: ${currentSocket.sensorReading.deviceId}`);
+        console.log(`✅ Command sent: ${command} to device: ${deviceId}`);
         // Refresh data after a short delay to get updated breaker state
         setTimeout(() => {
           fetchSocketsAndData();
@@ -175,7 +199,7 @@ export default function OutletsScreen() {
     } finally {
       setCommandLoading(null);
     }
-  }, [socketsWithData, currentPage, wsSendCommand, fetchSocketsAndData]);
+  }, [socketsWithData, currentPage, wsSendCommand, wsConnected, fetchSocketsAndData]);
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offsetX = event.nativeEvent.contentOffset.x;
@@ -566,9 +590,13 @@ export default function OutletsScreen() {
                         const currentSocket = socketsWithData[currentPage];
                         const outletNumber = currentSocket.outletData?.outletNumber || 1;
                         const breakerState = currentSocket.outletData?.breakerState ?? true; // Default to ON if unknown
+                        
+                        // FIX: Determine the correct command based on breaker state
                         const command = breakerState 
                           ? (outletNumber === 1 ? 'BREAKER1_OFF' : 'BREAKER2_OFF')
                           : (outletNumber === 1 ? 'BREAKER1_ON' : 'BREAKER2_ON');
+                        
+                        console.log(`🔘 Power button pressed for outlet ${outletNumber}, current state: ${breakerState ? 'ON' : 'OFF'}, sending: ${command}`);
                         sendCommand(command);
                       }}
                       disabled={!wsConnected || commandLoading !== null}
