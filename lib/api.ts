@@ -386,6 +386,14 @@ async scanForSensors(socketName: string): Promise<ApiResponse<{ sensors: { id: s
     });
   }
 
+  // Pair a device to the authenticated user
+  async pairDevice(deviceId: string, name?: string): Promise<ApiResponse<{ device: { id: string; deviceId: string; name?: string; pairedAt: string; isActive: boolean } }>> {
+    return this.request<{ device: { id: string; deviceId: string; name?: string; pairedAt: string; isActive: boolean } }>('/api/telemetry/device/pair', {
+      method: 'POST',
+      body: JSON.stringify({ deviceId, name }),
+    });
+  }
+
   async getSockets(): Promise<ApiResponse<{ sockets: Socket[] }>> {
     return this.request<{ sockets: Socket[] }>('/api/telemetry/sockets', {
       method: 'GET',

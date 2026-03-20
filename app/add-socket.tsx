@@ -61,7 +61,29 @@ export default function AddSocketScreen() {
       if (response.data?.sensors) {
         setFoundSensors(response.data.sensors);
         if (response.data.sensors.length === 0) {
-          Alert.alert('No ESP32 Found', 'No ESP32 were detected in this socket. Please check the connection and try again.');
+          // No local sensors found — attempt discovery via backend (MQTT) and auto-pair first device found
+          try {
+            const discovery = await api.discoverDevices();
+            if (discovery.error) {
+              Alert.alert('No ESP32 Found', 'No ESP32 were detected in this socket. Please check the connection and try again.');
+            } else if (discovery.data?.devices && discovery.data.devices.length > 0) {
+              const dev = discovery.data.devices[0];
+              // Attempt to pair the device for the current user
+              const pairRes = await api.pairDevice(dev.deviceId, socketName.trim() || undefined);
+              if (pairRes.error) {
+                Alert.alert('Pair Failed', pairRes.message || 'Failed to pair discovered device');
+              } else {
+                // Show the paired device in the UI
+                setFoundSensors([{ id: pairRes.data?.device?.id || dev.deviceId, deviceId: dev.deviceId, name: pairRes.data?.device?.name || dev.name }]);
+                Alert.alert('Paired', `Paired to device ${dev.deviceId}`);
+              }
+            } else {
+              Alert.alert('No ESP32 Found', 'No ESP32 were detected in this socket. Please check the connection and try again.');
+            }
+          } catch (err) {
+            console.error('Discovery/pair error:', err);
+            Alert.alert('Error', 'An unexpected error occurred while discovering/pairing');
+          }
         }
       }
     } catch (error) {
