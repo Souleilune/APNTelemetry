@@ -76,6 +76,9 @@ export default function AddSocketScreen() {
                 // Show the paired device in the UI
                 setFoundSensors([{ id: pairRes.data?.device?.id || dev.deviceId, deviceId: dev.deviceId, name: pairRes.data?.device?.name || dev.name }]);
                 Alert.alert('Paired', `Paired to device ${dev.deviceId}`);
+                // Navigate to Settings so it reloads device list from the database
+                router.replace('/(tabs)/settings' as any);
+                return;
               }
             } else {
               Alert.alert('No ESP32 Found', 'No ESP32 were detected in this socket. Please check the connection and try again.');
