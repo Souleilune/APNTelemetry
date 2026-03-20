@@ -85,7 +85,7 @@ export interface Socket {
   updatedAt: string;
   devices: {
     id: string;
-    deviceId: string;
+    device_id: string;
     name?: string;
   }[];
 }

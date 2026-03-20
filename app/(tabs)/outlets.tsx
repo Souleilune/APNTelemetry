@@ -52,6 +52,7 @@ interface SocketWithData {
 export default function OutletsScreen() {
   const [currentPage, setCurrentPage] = useState(0);
   const [sockets, setSockets] = useState<Socket[]>([]);
+  const [userDevices, setUserDevices] = useState<any[]>([]);
   const [socketsWithData, setSocketsWithData] = useState<SocketWithData[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -67,13 +68,52 @@ export default function OutletsScreen() {
       // Fetch sockets from database
       const socketsResponse = await api.getSockets();
       if (socketsResponse.data?.sockets) {
-        setSockets(socketsResponse.data.sockets);
+        // Log raw sockets for diagnostics when devices are missing
+        console.log('Fetched sockets from API:', socketsResponse.data.sockets);
+        // Fetch user's paired devices as a fallback if sockets have no associated devices
+        const devicesResponse = await api.getDevices();
+        const pairedDevices: any[] = devicesResponse.data?.devices ?? [];
+        if (pairedDevices.length > 0) {
+          console.log('Fetched user devices for fallback:', pairedDevices);
+        }
+        setUserDevices(pairedDevices.map(d => ({
+          id: d.id ?? d.deviceId,
+          device_id: d.deviceId ?? d.device_id ?? d.id,
+          deviceId: d.deviceId ?? d.device_id ?? d.id,
+          name: d.name,
+        })));
+
+        // Normalize device objects to include both device_id and deviceId for compatibility
+        const normalizedSockets = socketsResponse.data.sockets.map((s: any) => {
+          let devices = Array.isArray(s.devices) ? s.devices.map((d: any) => ({
+            id: d.id ?? d.deviceId ?? d.device_id,
+            device_id: d.device_id ?? d.deviceId ?? d.id,
+            deviceId: d.deviceId ?? d.device_id ?? d.id,
+            name: d.name,
+          })) : [];
+
+          // If no devices on the socket, fall back to the first paired device for the user
+          if ((!devices || devices.length === 0) && pairedDevices.length > 0) {
+            const fallback = pairedDevices[0];
+            console.log(`Using fallback device ${fallback.deviceId || fallback.device_id} for socket ${s.id}`);
+            devices = [{
+              id: fallback.id ?? fallback.deviceId ?? fallback.device_id,
+              device_id: fallback.deviceId ?? fallback.device_id ?? fallback.id,
+              deviceId: fallback.deviceId ?? fallback.device_id ?? fallback.id,
+              name: fallback.name,
+            }];
+          }
+
+          return { ...s, devices };
+        });
+
+        setSockets(normalizedSockets);
         
         // For each socket, get sensor data from associated devices
         const socketsData: SocketWithData[] = [];
 
         // Use an indexed loop so we can map split outlet data to the correct socket index
-        const socketList = socketsResponse.data.sockets;
+        const socketList = normalizedSockets;
         for (let i = 0; i < socketList.length; i++) {
           const socket = socketList[i];
           let latestReading: SensorReading | null = null;
@@ -81,7 +121,7 @@ export default function OutletsScreen() {
 
           if (socket.devices && socket.devices.length > 0) {
             // Get latest reading from the first device (or you could aggregate from all devices)
-            const deviceId = socket.devices[0]?.deviceId;
+            const deviceId = socket.devices[0]?.device_id;
             if (deviceId) {
               const readingResponse = await api.getLatestSensorReading();
               if (readingResponse.data?.reading && readingResponse.data.reading.deviceId === deviceId) {
@@ -161,17 +201,23 @@ export default function OutletsScreen() {
 
   const sendCommand = useCallback(async (command: string) => {
     const currentSocket = socketsWithData[currentPage];
-    
-    // FIX: Check if socket has devices and get deviceId properly
-    if (!currentSocket?.socket?.devices || currentSocket.socket.devices.length === 0) {
-      console.log('❌ No devices available for this socket');
+
+    if (!currentSocket) {
+      console.log('❌ No current socket at index', currentPage);
       return;
     }
 
-    const deviceId = currentSocket.socket.devices[0].deviceId;
-    
+    // Try multiple potential places for a device ID to be present
+    const deviceFromOutlet = currentSocket.outletData?.deviceId;
+    const deviceFromSocketDevices = currentSocket.socket?.devices && currentSocket.socket.devices.length > 0
+      ? (currentSocket.socket.devices[0].device_id ?? currentSocket.socket.devices[0].device_id)
+      : undefined;
+    const deviceFromReading = currentSocket.sensorReading?.deviceId;
+
+    const deviceId = deviceFromOutlet || deviceFromSocketDevices || deviceFromReading;
+
     if (!deviceId) {
-      console.log('❌ No device ID available');
+      console.log('❌ No device ID available for socket', currentSocket.socket?.id, currentSocket);
       return;
     }
 
@@ -180,11 +226,12 @@ export default function OutletsScreen() {
       return;
     }
 
-    console.log(`🔘 Sending command: ${command} to device: ${deviceId}`);
+    console.log(`🔘 Sending command: ${command} to device: ${deviceId}`, { socketId: currentSocket.socket.id });
     setCommandLoading(command);
-    
+
     try {
-      const success = wsSendCommand(deviceId, command);
+      // Await in case wsSendCommand returns a promise; works for both sync/async implementations
+      const success = await wsSendCommand(deviceId, command);
       if (success) {
         console.log(`✅ Command sent: ${command} to device: ${deviceId}`);
         // Refresh data after a short delay to get updated breaker state
@@ -294,7 +341,7 @@ export default function OutletsScreen() {
     // Get default values when outletData is null
     const outletNumber = outlet?.outletNumber || 1;
     const deviceId = outlet?.deviceId || (socketWithData.socket.devices && socketWithData.socket.devices.length > 0 
-      ? socketWithData.socket.devices[0].deviceId 
+      ? socketWithData.socket.devices[0].device_id  // ✅ FIX: Use device_id instead of deviceId
       : '');
     
     // Get status values or defaults
@@ -590,13 +637,19 @@ export default function OutletsScreen() {
                         const currentSocket = socketsWithData[currentPage];
                         const outletNumber = currentSocket.outletData?.outletNumber || 1;
                         const breakerState = currentSocket.outletData?.breakerState ?? true; // Default to ON if unknown
-                        
-                        // FIX: Determine the correct command based on breaker state
-                        const command = breakerState 
-                          ? (outletNumber === 1 ? 'BREAKER1_OFF' : 'BREAKER2_OFF')
-                          : (outletNumber === 1 ? 'BREAKER1_ON' : 'BREAKER2_ON');
-                        
-                        console.log(`🔘 Power button pressed for outlet ${outletNumber}, current state: ${breakerState ? 'ON' : 'OFF'}, sending: ${command}`);
+
+                        // Map the FIRST socket to breaker 1 and SECOND socket to breaker 2
+                        // If this is a different socket, fall back to outletNumber if present
+                        const socketIndex = currentPage;
+                        let breakerIndex = outletNumber;
+                        if (socketIndex === 0) breakerIndex = 1;
+                        else if (socketIndex === 1) breakerIndex = 2;
+
+                        const command = breakerState
+                          ? (breakerIndex === 1 ? 'BREAKER1_OFF' : 'BREAKER2_OFF')
+                          : (breakerIndex === 1 ? 'BREAKER1_ON' : 'BREAKER2_ON');
+
+                        console.log(`🔘 Power button pressed for socketIndex=${socketIndex} -> breaker ${breakerIndex}, outlet ${outletNumber}, current state: ${breakerState ? 'ON' : 'OFF'}, sending: ${command}`);
                         sendCommand(command);
                       }}
                       disabled={!wsConnected || commandLoading !== null}
@@ -701,8 +754,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   outletCardContainer: {
-    width: width - 32, // Account for outer padding
-    paddingHorizontal: 12, // Add spacing between cards
+    width: width - 32,
+    paddingHorizontal: 12,
   },
   outletCard: {
     backgroundColor: COLORS.white,
@@ -997,11 +1050,11 @@ const styles = StyleSheet.create({
   },
   outlet1Card: {
     borderWidth: 2,
-    borderColor: '#2196F330', // Blue for outlet 1
+    borderColor: '#2196F330',
   },
   outlet2Card: {
     borderWidth: 2,
-    borderColor: '#9C27B030', // Purple for outlet 2
+    borderColor: '#9C27B030',
   },
   insightIconBg: {
     width: 56,
