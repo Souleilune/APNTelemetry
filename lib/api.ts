@@ -293,8 +293,7 @@ class ApiClient {
   }
 
   // Device discovery endpoints
-  async discoverDevicesMQTT(): Promise<ApiResponse<{ devices: Array<{ deviceId: string; name: string; lastSeen: string }>; count: number }>> {
-    // This endpoint doesn't require auth, so we need to make a request without token
+async discoverDevicesMQTT(): Promise<ApiResponse<{ devices: { deviceId: string; name: string; lastSeen: string }[]; count: number }>> {    // This endpoint doesn't require auth, so we need to make a request without token
     try {
       const response = await fetch(`${this.baseURL}/api/telemetry/devices/discover`, {
         method: 'POST',
@@ -322,8 +321,7 @@ class ApiClient {
     }
   }
 
-  async discoverDevices(): Promise<ApiResponse<{ devices: Array<{ deviceId: string; name: string; lastSeen: string; source?: 'ble' | 'mqtt' }>; count: number }>> {
-    // Try MQTT discovery (BLE will be handled locally in the component)
+async discoverDevices(): Promise<ApiResponse<{ devices: { deviceId: string; name: string; lastSeen: string; source?: 'ble' | 'mqtt' }[]; count: number }>> {    // Try MQTT discovery (BLE will be handled locally in the component)
     return this.discoverDevicesMQTT();
   }
 
@@ -382,8 +380,7 @@ class ApiClient {
   }
 
   // Socket endpoints
-  async scanForSensors(socketName: string): Promise<ApiResponse<{ sensors: Array<{ id: string; deviceId: string; name?: string; type?: string }> }>> {
-    return this.request<{ sensors: Array<{ id: string; deviceId: string; name?: string; type?: string }> }>('/api/telemetry/sockets/scan', {
+async scanForSensors(socketName: string): Promise<ApiResponse<{ sensors: { id: string; deviceId: string; name?: string; type?: string }[] }>> {    return this.request<{ sensors: { id: string; deviceId: string; name?: string; type?: string }[] }>('/api/telemetry/sockets/scan', {
       method: 'POST',
       body: JSON.stringify({ socketName }),
     });
