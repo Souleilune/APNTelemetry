@@ -441,7 +441,7 @@ export default function OutletsScreen() {
   };
 
   // Parse voltage value from the power payload (power may be a JSON string or a simple string)
-  const extractVoltageFromPower = (power?: string | null): number | null => {
+  const extractVoltageFromPower = (power?: string | null, outletNumber?: 1 | 2): number | null => {
     if (power === undefined || power === null) return null;
 
     // Try to parse numeric string
@@ -462,6 +462,14 @@ export default function OutletsScreen() {
 
       // If parsed is an object, look for common voltage fields
       if (parsed && typeof parsed === 'object') {
+        const outletVoltage = outletNumber === 1
+          ? tryNumber(parsed.voltage1 ?? parsed.v1)
+          : outletNumber === 2
+            ? tryNumber(parsed.voltage2 ?? parsed.v2)
+            : null;
+
+        if (outletVoltage !== null) return outletVoltage;
+
         const candidates = [parsed.voltage1, parsed.voltage2, parsed.voltage, parsed.v, parsed.v1, parsed.v2];
         const nums = candidates.map(tryNumber).filter(n => n !== null) as number[];
         if (nums.length === 0) return null;
@@ -690,7 +698,7 @@ export default function OutletsScreen() {
                   <View style={styles.sensorInfo}>
                     <Text style={styles.sensorLabel}>Voltage</Text>
                       {(() => {
-                        const voltage = extractVoltageFromPower(outlet.power);
+                        const voltage = extractVoltageFromPower(outlet.power, outletNumber);
                         const isRecent = outlet.receivedAt ? (Date.now() - new Date(outlet.receivedAt).getTime()) <= 10000 : false;
                         return (
                           <Text style={styles.sensorValue}>
@@ -700,7 +708,7 @@ export default function OutletsScreen() {
                       })()}
                   </View>
                   {(() => {
-                    const voltage = extractVoltageFromPower(outlet.power);
+                    const voltage = extractVoltageFromPower(outlet.power, outletNumber);
                     const isRecent = outlet.receivedAt ? (Date.now() - new Date(outlet.receivedAt).getTime()) <= 10000 : false;
                     const hasVoltage = isRecent && voltage !== null && voltage > 0;
                     return (
