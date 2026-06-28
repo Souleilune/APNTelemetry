@@ -75,6 +75,23 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
       } else {
         powerValue = payload.power;
       }
+    } else if (
+      payload.voltage1 !== undefined ||
+      payload.voltage2 !== undefined ||
+      payload.voltage !== undefined ||
+      payload.current1 !== undefined ||
+      payload.current2 !== undefined
+    ) {
+      powerValue = JSON.stringify({
+        voltage1: payload.voltage1,
+        voltage2: payload.voltage2,
+        voltage: payload.voltage,
+        current1: payload.current1,
+        current2: payload.current2,
+        current: payload.current,
+        v1_raw: payload.v1_raw ?? payload.voltage1_raw,
+        v2_raw: payload.v2_raw ?? payload.voltage2_raw,
+      });
     } else if (payload.power_status) {
       powerValue = payload.power_status;
     }
@@ -233,33 +250,48 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
 
     readings.forEach((reading) => {
       movementValues.push(reading.gyro?.movement || 0);
-      
+
       // Gas detection (1 for detected, 0 for not detected)
       gasDetections.push(reading.gas ? 1 : 0);
-      
-      // Extract real voltage and current from power object
+
+      // Extract real voltage and current from MQTT power object
       const { voltage, current } = extractPowerData(reading.power);
-      
-      // Use real voltage data, or 0 if power is tripped
+
       if (isPowerTripped) {
+        // When power is tripped, explicitly record zeroes
         voltageValues.push(0);
-      } else if (voltage !== null) {
-        voltageValues.push(voltage);
-      }
-      // If no voltage data, don't add to array (will be excluded from stats)
-      
-      // Use real current data, or 0 if power is tripped
-      if (isPowerTripped) {
         currentValues.push(0);
-      } else if (current !== null) {
-        currentValues.push(current);
+      } else {
+        // Only include real measurements; do not push zeros for missing data
+        if (voltage !== null) {
+          voltageValues.push(voltage);
+        }
+        if (current !== null) {
+          currentValues.push(current);
+        }
       }
-      // If no current data, don't add to array (will be excluded from stats)
     });
 
-    const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
-    const max = (arr: number[]) => arr.length > 0 ? Math.max(...arr) : 0;
-    const min = (arr: number[]) => arr.length > 0 ? Math.min(...arr) : 0;
+    const avg = (arr: number[]) => (arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
+    const max = (arr: number[]) => (arr.length > 0 ? Math.max(...arr) : 0);
+    const min = (arr: number[]) => (arr.length > 0 ? Math.min(...arr) : 0);
+
+    // Consider readings stale after 10 seconds — if the latest reading is stale, show zeros
+    const LATEST_STALE_MS = 10000; // 10 seconds
+    // Determine the most recent reading timestamp regardless of array ordering
+    const latestTimestamp = readings.length > 0
+      ? Math.max(...readings.map((r) => new Date(r.receivedAt).getTime()))
+      : 0;
+    const isLatestFresh = readings.length > 0 ? (Date.now() - latestTimestamp) <= LATEST_STALE_MS : false;
+
+    // If power is tripped OR latest reading is stale, show zeros for voltage
+    const voltageStats = (isPowerTripped || !isLatestFresh)
+      ? { avg: 0, max: 0, min: 0 }
+      : {
+          avg: voltageValues.length > 0 ? avg(voltageValues) : 0,
+          max: voltageValues.length > 0 ? max(voltageValues) : 0,
+          min: voltageValues.length > 0 ? min(voltageValues) : 0,
+        };
 
     return {
       movement: {
@@ -268,14 +300,10 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
         min: min(movementValues),
       },
       gas: {
-        detections: gasDetections.filter(v => v === 1).length,
+        detections: gasDetections.filter((v) => v === 1).length,
         total: gasDetections.length,
       },
-      voltage: {
-        avg: voltageValues.length > 0 ? avg(voltageValues) : 0,
-        max: voltageValues.length > 0 ? max(voltageValues) : 0,
-        min: voltageValues.length > 0 ? min(voltageValues) : 0,
-      },
+      voltage: voltageStats,
       current: {
         avg: currentValues.length > 0 ? avg(currentValues) : 0,
         max: currentValues.length > 0 ? max(currentValues) : 0,
@@ -329,7 +357,6 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
     const voltageData: number[] = [];
 
     const recentReadings = readings.slice(0, 30).reverse();
-
     recentReadings.forEach((reading) => {
       const date = new Date(reading.receivedAt);
       const isToday = date.toDateString() === new Date().toDateString();
@@ -338,7 +365,7 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
         : `${date.getMonth() + 1}/${date.getDate()}`;
       labels.push(label);
       
-      // Extract real voltage data from power object
+      // Extract real voltage data from MQTT power object
       const { voltage } = extractPowerData(reading.power);
       if (isPowerTripped) {
         voltageData.push(0);
@@ -625,7 +652,7 @@ export function OverallAnalytics({ deviceId, isPowerTripped = false }: OverallAn
                 selectedChart === 'movement' && styles.chartTypeButtonTextActive,
               ]}
             >
-              Mov't
+              Movt
             </Text>
           </TouchableOpacity>
           <TouchableOpacity

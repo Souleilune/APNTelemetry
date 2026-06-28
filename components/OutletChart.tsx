@@ -91,10 +91,14 @@ export function OutletChart({ outletNumber, deviceId, readings, loading }: Outle
       // Zone 1: water[0] and water[1], Zone 2: water[2] and water[3]
       if (outletNumber === 1) {
         // Zone 1 detection (use first value, both are the same)
-        zoneData.push(reading.water[0] === 1 ? 1 : 0);
+        const w0 = Array.isArray(reading.water) ? reading.water[0] : null;
+        const val = w0 === 1 || String(w0) === '1' ? 1 : 0;
+        zoneData.push(val);
       } else {
         // Zone 2 detection (use first value of zone 2, both are the same)
-        zoneData.push(reading.water[2] === 1 ? 1 : 0);
+        const w2 = Array.isArray(reading.water) ? reading.water[2] : null;
+        const val = w2 === 1 || String(w2) === '1' ? 1 : 0;
+        zoneData.push(val);
       }
     });
 
@@ -123,10 +127,14 @@ export function OutletChart({ outletNumber, deviceId, readings, loading }: Outle
         : `${date.getMonth() + 1}/${date.getDate()}`;
       labels.push(label);
 
-      const temp = outletNumber === 1 
-        ? reading.temperature.temp1 
-        : reading.temperature.temp2;
-      tempData.push(temp || 0);
+      let tempVal: any = 0;
+      if (outletNumber === 1) {
+        tempVal = reading.temperature?.temp1 ?? reading.temp1 ?? 0;
+      } else {
+        tempVal = reading.temperature?.temp2 ?? reading.temp2 ?? 0;
+      }
+      const numeric = typeof tempVal === 'number' ? tempVal : Number(tempVal);
+      tempData.push(!isNaN(numeric) ? numeric : 0);
     });
 
     return {

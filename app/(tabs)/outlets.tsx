@@ -61,7 +61,126 @@ export default function OutletsScreen() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [commandLoading, setCommandLoading] = useState<string | null>(null);
   const horizontalScrollRef = useRef<ScrollView>(null);
-  const { sendCommand: wsSendCommand, isConnected: wsConnected } = useWebSocket();
+  // Telemetry handler will update socketsWithData in real-time
+  const transformTelemetryToReading = useCallback((telemetryData: {
+    deviceId: string;
+    messageType: string;
+    payload: any;
+    receivedAt: string;
+  }): SensorReading | null => {
+    if (telemetryData.messageType !== 'sensor_reading' && telemetryData.messageType !== 'power_status') return null;
+
+    const payload = telemetryData.payload ?? {};
+
+    // Normalize water array (boolean -> 0/1)
+    let waterArray: [number | null, number | null, number | null, number | null] = [null, null, null, null];
+    if (Array.isArray(payload.water)) {
+      waterArray = payload.water.map((w: any) => {
+        if (typeof w === 'boolean') return w ? 1 : 0;
+        if (typeof w === 'number') return w;
+        return null;
+      }) as [number | null, number | null, number | null, number | null];
+    }
+
+    // Power may be object or string; store JSON string when object
+    let powerValue: string | null = null;
+    if (payload.power !== undefined && payload.power !== null) {
+      // Normalize numbers and objects to JSON string, keep plain strings
+      if (typeof payload.power === 'object') {
+        try {
+          powerValue = JSON.stringify(payload.power);
+        } catch (e) {
+          powerValue = String(payload.power);
+        }
+      } else if (typeof payload.power === 'number') {
+        powerValue = String(payload.power);
+      } else {
+        powerValue = payload.power;
+      }
+    } else if (
+      payload.voltage1 !== undefined ||
+      payload.voltage2 !== undefined ||
+      payload.voltage !== undefined ||
+      payload.current1 !== undefined ||
+      payload.current2 !== undefined
+    ) {
+      powerValue = JSON.stringify({
+        voltage1: payload.voltage1,
+        voltage2: payload.voltage2,
+        voltage: payload.voltage,
+        current1: payload.current1,
+        current2: payload.current2,
+        current: payload.current,
+        v1_raw: payload.v1_raw ?? payload.voltage1_raw,
+        v2_raw: payload.v2_raw ?? payload.voltage2_raw,
+      });
+    } else if (payload.power_status !== undefined && payload.power_status !== null) {
+      powerValue = String(payload.power_status);
+    }
+
+    // Normalize temperature sensors to numeric values where possible
+    const parseTemp = (obj: any, keys: string[]) => {
+      for (const k of keys) {
+        const val = obj?.[k];
+        if (val !== undefined && val !== null && val !== '') {
+          const n = typeof val === 'number' ? val : Number(val);
+          if (!isNaN(n)) return n;
+        }
+      }
+      return null;
+    };
+
+    const temp1 = parseTemp(payload.temperature, ['temp1', 'temp_1', 't1', 'temperature1', 'temperature_1']);
+    const temp2 = parseTemp(payload.temperature, ['temp2', 'temp_2', 't2', 'temperature2', 'temperature_2']);
+
+    return {
+      id: `${telemetryData.deviceId}_${Date.now()}`,
+      deviceId: telemetryData.deviceId,
+      water: waterArray,
+      gas: payload.gas !== undefined ? Boolean(payload.gas) : false,
+      temperature: {
+        temp1: temp1,
+        temp2: temp2,
+      },
+      gyro: {
+        movement: payload.gyro?.movement ?? payload.movement ?? null,
+      },
+      power: powerValue,
+      receivedAt: telemetryData.receivedAt || new Date().toISOString(),
+    };
+  }, []);
+
+  const handleTelemetry = useCallback((telemetryData: { deviceId: string; messageType: string; payload: any; receivedAt: string }) => {
+    if (telemetryData.messageType !== 'sensor_reading' && telemetryData.messageType !== 'power_status') return;
+
+    const reading = transformTelemetryToReading(telemetryData);
+    if (!reading) return;
+
+    // Update socketsWithData entries that match the deviceId
+    setSocketsWithData(prev => {
+      let changed = false;
+      const next = prev.map(entry => {
+        const socketDevices = entry.socket?.devices ?? [];
+        const matches = socketDevices.some((d: any) => (d.device_id === reading.deviceId) || (d.deviceId === reading.deviceId) || (d.id === reading.deviceId));
+        if (matches) {
+          const split = splitSensorDataByOutlet(reading, true, true);
+          const outletIndex = 0; // default to first outlet slice; if socket maps differently, adjust
+          const outletData = split?.[outletIndex] ?? null;
+          if (outletData) outletData.outletNumber = (outletIndex + 1) as 1 | 2;
+          changed = true;
+          return {
+            ...entry,
+            sensorReading: reading,
+            outletData,
+          };
+        }
+        return entry;
+      });
+      return changed ? next : prev;
+    });
+  }, [transformTelemetryToReading]);
+
+  const { sendCommand: wsSendCommand, isConnected: wsConnected } = useWebSocket({ onTelemetry: handleTelemetry });
 
   const fetchSocketsAndData = useCallback(async () => {
     try {
@@ -123,8 +242,10 @@ export default function OutletsScreen() {
             // Get latest reading from the first device (or you could aggregate from all devices)
             const deviceId = socket.devices[0]?.device_id;
             if (deviceId) {
-              const readingResponse = await api.getLatestSensorReading();
-              if (readingResponse.data?.reading && readingResponse.data.reading.deviceId === deviceId) {
+              console.log(`Outlets: fetching latest reading for deviceId=${deviceId}`);
+              const readingResponse = await api.getLatestSensorReading(deviceId);
+              console.log('Outlets: latest reading response', { deviceId, readingResponse });
+              if (readingResponse.data?.reading) {
                 latestReading = readingResponse.data.reading;
                 // Split data by outlet (assuming breakers are both ON by default)
                 const splitData = splitSensorDataByOutlet(latestReading, true, true);
@@ -163,19 +284,41 @@ export default function OutletsScreen() {
 
   const fetchHistoricalData = useCallback(async () => {
     const currentSocket = socketsWithData[currentPage];
-    if (!currentSocket?.sensorReading?.deviceId) return;
-    
+    if (!currentSocket) return;
+
+    // Derive deviceId from multiple possible locations for robustness
+    const candidateDeviceId =
+      currentSocket.sensorReading?.deviceId ??
+      // Some APIs return device_id instead of deviceId
+      // @ts-ignore
+      currentSocket.sensorReading?.device_id ??
+      currentSocket.outletData?.deviceId ??
+      // fallback to the socket's first associated device
+      currentSocket.socket?.devices?.[0]?.device_id ??
+      currentSocket.socket?.devices?.[0]?.deviceId;
+
+    if (!candidateDeviceId) {
+      console.log('No deviceId available for historical data for socket', currentSocket.socket?.id);
+      setHistoricalReadings([]);
+      return;
+    }
+
     setLoadingHistory(true);
     try {
+      console.log('Outlets: fetching historical readings for deviceId=', candidateDeviceId);
       const response = await api.getSensorReadings({ 
-        limit: 50, 
-        deviceId: currentSocket.sensorReading.deviceId 
+        limit: 50,
+        deviceId: candidateDeviceId,
       });
+      console.log('Outlets: historical readings response', { deviceId: candidateDeviceId, response });
       if (response.data?.readings) {
         setHistoricalReadings(response.data.readings);
+      } else {
+        setHistoricalReadings([]);
       }
     } catch (error) {
       console.error('Error fetching historical data:', error);
+      setHistoricalReadings([]);
     } finally {
       setLoadingHistory(false);
     }
@@ -295,6 +438,45 @@ export default function OutletsScreen() {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  // Parse voltage value from the power payload (power may be a JSON string or a simple string)
+  const extractVoltageFromPower = (power?: string | null): number | null => {
+    if (power === undefined || power === null) return null;
+
+    // Try to parse numeric string
+    const tryNumber = (p: any) => {
+      if (typeof p === 'number') return p;
+      if (typeof p === 'string') {
+        const n = Number(p);
+        if (!isNaN(n)) return n;
+      }
+      return null;
+    };
+
+    try {
+      // If power is a JSON string, parse it
+      const parsed = typeof power === 'string' ? (() => {
+        try { return JSON.parse(power); } catch { return power; }
+      })() : power;
+
+      // If parsed is an object, look for common voltage fields
+      if (parsed && typeof parsed === 'object') {
+        const candidates = [parsed.voltage1, parsed.voltage2, parsed.voltage, parsed.v, parsed.v1, parsed.v2];
+        const nums = candidates.map(tryNumber).filter(n => n !== null) as number[];
+        if (nums.length === 0) return null;
+        const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
+        return avg;
+      }
+
+      // If parsed is a numeric or numeric string
+      const direct = tryNumber(parsed);
+      if (direct !== null) return direct;
+    } catch (e) {
+      // ignore
+    }
+
+    return null;
   };
 
   const renderOutletIllustration = (socketWithData: SocketWithData, index: number) => {
@@ -498,22 +680,37 @@ export default function OutletsScreen() {
               </View>
             </View>
 
-            {/* Power Status - Shared */}
-            {outlet?.power && (
+            {/* Voltage (derived from power payload) */}
+            {outlet && (
               <View style={styles.sensorRow}>
                 <View style={styles.sensorItem}>
                   <View style={[styles.sensorIconBg, { backgroundColor: '#4CAF5020' }]}>
                     <Ionicons name="battery-charging" size={20} color="#4CAF50" />
                   </View>
                   <View style={styles.sensorInfo}>
-                    <Text style={styles.sensorLabel}>Power Source</Text>
-                    <Text style={styles.sensorValue}>{outlet.power}</Text>
+                    <Text style={styles.sensorLabel}>Voltage</Text>
+                      {(() => {
+                        const voltage = extractVoltageFromPower(outlet.power);
+                        const isRecent = outlet.receivedAt ? (Date.now() - new Date(outlet.receivedAt).getTime()) <= 10000 : false;
+                        return (
+                          <Text style={styles.sensorValue}>
+                            {isRecent && voltage !== null ? `${voltage.toFixed(1)}V` : '0.0V'}
+                          </Text>
+                        );
+                      })()}
                   </View>
-                  <View style={[styles.statusBadge, { backgroundColor: outlet.power === 'MAIN' ? COLORS.success + '20' : COLORS.warning + '20' }]}>
-                    <Text style={[styles.statusBadgeText, { color: outlet.power === 'MAIN' ? COLORS.success : COLORS.warning }]}>
-                      {outlet.power === 'MAIN' ? 'OK' : 'Backup'}
-                    </Text>
-                  </View>
+                  {(() => {
+                    const voltage = extractVoltageFromPower(outlet.power);
+                    const isRecent = outlet.receivedAt ? (Date.now() - new Date(outlet.receivedAt).getTime()) <= 10000 : false;
+                    const hasVoltage = isRecent && voltage !== null && voltage > 0;
+                    return (
+                      <View style={[styles.statusBadge, { backgroundColor: hasVoltage ? COLORS.success + '20' : COLORS.warning + '20' }]}>
+                        <Text style={[styles.statusBadgeText, { color: hasVoltage ? COLORS.success : COLORS.warning }]}>
+                          {hasVoltage ? 'OK' : 'No Voltage'}
+                        </Text>
+                      </View>
+                    );
+                  })()}
                 </View>
               </View>
             )}

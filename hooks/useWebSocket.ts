@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { notificationService } from '@/services/notifications';
+import { api } from '@/lib/api';
 
 const TOKEN_KEY = 'auth_token';
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://apnbackend-fv05.onrender.com';
@@ -41,8 +42,11 @@ export function useWebSocket(options?: UseWebSocketOptions) {
 
   useEffect(() => {
     let websocket: WebSocket | null = null;
-    let reconnectTimeout: NodeJS.Timeout | null = null;
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    let reconnectAttempts = 0;
     let isMounted = true;
+    const maxReconnectAttempts = 6; // exponential backoff cap
+    let refreshAttempted = false; // only try token refresh once per disconnect
 
     const connect = async () => {
       try {
@@ -79,19 +83,45 @@ export function useWebSocket(options?: UseWebSocketOptions) {
             setWs(null);
           }
           
-          // Don't retry on authentication errors (4001, 4002, 4004) or normal closure (1000)
+          // Don't retry on normal closure (1000)
+          if (event.code === 1000) return;
+
+          // Authentication-related server codes - try token refresh once, then reconnect
           const authErrorCodes = [4001, 4002, 4004];
           if (authErrorCodes.includes(event.code)) {
-            console.warn('🔌 WebSocket: Authentication error - not retrying. Please refresh token.');
+            console.warn('🔌 WebSocket: Authentication error. Attempting token refresh...');
+            if (!refreshAttempted) {
+              refreshAttempted = true;
+              api.refreshToken().then((res) => {
+                if (res.data?.session) {
+                  console.log('🔑 WebSocket: Token refresh succeeded, reconnecting...');
+                  // reset reconnect attempts and reconnect
+                  reconnectAttempts = 0;
+                  connect();
+                } else {
+                  console.warn('🔑 WebSocket: Token refresh failed, not reconnecting automatically.');
+                }
+              }).catch((err) => {
+                console.error('🔑 WebSocket: Token refresh error', err);
+              });
+            } else {
+              console.warn('🔑 WebSocket: Token refresh already attempted, not retrying.');
+            }
             return;
           }
-          
-          // Attempt to reconnect after 3 seconds if not a normal closure
-          if (event.code !== 1000 && isMounted) {
+
+          // Attempt to reconnect with exponential backoff
+          if (isMounted) {
+            const backoff = Math.min(30000, 1000 * Math.pow(2, reconnectAttempts));
             reconnectTimeout = setTimeout(() => {
-              console.log('🔄 WebSocket: Attempting to reconnect...');
+              reconnectAttempts += 1;
+              if (reconnectAttempts > maxReconnectAttempts) {
+                console.warn('🔄 WebSocket: Max reconnect attempts reached, stopping retries.');
+                return;
+              }
+              console.log(`🔄 WebSocket: Attempting to reconnect (attempt ${reconnectAttempts})...`);
               connect();
-            }, 3000);
+            }, backoff);
           }
         };
 
@@ -102,24 +132,45 @@ export function useWebSocket(options?: UseWebSocketOptions) {
           }
         };
 
+        // Message handler - process telemetry, alerts, and auth errors
         websocket.onmessage = async (event) => {
           try {
             const message = JSON.parse(event.data);
             console.log('📨 WebSocket message received:', message);
-            
+
+            // If server indicates auth error in message payload, attempt refresh once
+            if (message?.type === 'error' && message?.code === 401) {
+              console.warn('🔌 WebSocket: Server reported auth error (401) via message');
+              if (!refreshAttempted) {
+                refreshAttempted = true;
+                try {
+                  const res = await api.refreshToken();
+                  if (res.data?.session) {
+                    console.log('🔑 WebSocket: Token refresh succeeded from message handler, reconnecting...');
+                    reconnectAttempts = 0;
+                    try { websocket?.close(); } catch (e) {}
+                    connect();
+                    return;
+                  }
+                } catch (err) {
+                  console.error('🔑 WebSocket: Token refresh failed in message handler', err);
+                }
+              }
+            }
+
             // Handle different message types
             if (message.type === 'connected') {
               console.log('✅ WebSocket: Server confirmed connection');
             } else if (message.type === 'telemetry') {
               console.log('📊 WebSocket: Telemetry data received');
-              
+
               const telemetryData = message.data;
-              
+
               // Call the optional telemetry callback if provided (use ref to get latest)
               if (onTelemetryRef.current && telemetryData) {
                 onTelemetryRef.current(telemetryData);
               }
-              
+
               // Check if this is an alert message and trigger notification
               if (telemetryData && telemetryData.messageType === 'alert') {
                 const alertPayload = telemetryData.payload;
@@ -133,7 +184,7 @@ export function useWebSocket(options?: UseWebSocketOptions) {
                     value: alertPayload.value !== undefined ? alertPayload.value : undefined,
                     receivedAt: telemetryData.receivedAt || new Date().toISOString(),
                   };
-                  
+
                   // Trigger local notification
                   await notificationService.sendLocalNotification(alertData);
                   console.log('🔔 Local notification triggered for alert:', alertPayload.alert);

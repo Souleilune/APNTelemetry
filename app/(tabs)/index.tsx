@@ -846,7 +846,8 @@ export default function HomeScreen() {
           <View style={styles.insightsSection}>
             <Text style={styles.sectionTitle}>Actionable Insights:</Text>
             
-            <View style={styles.insightsGrid}>
+            {/* Center cards when there's only one actionable card (Power) */}
+            <View style={[styles.insightsGrid, styles.insightsGridSingle]}>
               {/* Power Button */}
               <TouchableOpacity 
                 style={[
@@ -883,7 +884,7 @@ export default function HomeScreen() {
               </TouchableOpacity>
 
               {/* Shake Button */}
-              <TouchableOpacity 
+              {/* <TouchableOpacity 
                 style={[
                   styles.insightCard, 
                   styles.shakeCard,
@@ -915,12 +916,12 @@ export default function HomeScreen() {
                     <Text style={styles.insightSubtitle}>Seismic Test</Text>
                   </>
                 )}
-              </TouchableOpacity>
+              </TouchableOpacity> */}
             </View>
           </View>
 
           {/* Test Notification Section */}
-          <View style={styles.testSection}>
+          {/* <View style={styles.testSection}>
             <Text style={styles.sectionTitle}>Test Notifications:</Text>
             <TouchableOpacity 
               style={styles.testButton}
@@ -935,17 +936,17 @@ export default function HomeScreen() {
             <Text style={styles.testHint}>
               Tap to test local notification (works in Expo Go)
             </Text>
-          </View>
+          </View> */}
         </ScrollView>
       </SafeAreaView>
 
       {/* Outlet Modal */}
-      <OutletModal
+      {/* <OutletModal
         visible={modalVisible}
         outletNumber={selectedOutlet}
         onClose={handleCloseModal}
         initialOutletData={outletsData ? outletsData[selectedOutlet - 1] : null}
-      />
+      /> */}
     </View>
   );
 }
@@ -1250,6 +1251,9 @@ const styles = StyleSheet.create({
   insightsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  insightsGridSingle: {
+    justifyContent: 'center',
   },
   insightCard: {
     width: '48%',

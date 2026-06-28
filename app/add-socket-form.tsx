@@ -41,10 +41,30 @@ export default function AddSocketFormScreen() {
     setSaving(true);
 
     try {
-      const response = await api.createSocket(socketName.trim(), location.trim() || undefined);
+      // Try to create socket directly first (if sensors are already provided server-side it will succeed)
+      let response = await api.createSocket(socketName.trim(), location.trim() || undefined);
+
+      // If server rejects because sensors are not set, attempt discovery and pair first available device
+      if (response.error && response.message && response.message.toLowerCase().includes('sensors')) {
+        try {
+          const discovery = await api.discoverDevices();
+          if (!discovery.error && discovery.data?.devices && discovery.data.devices.length > 0) {
+            // Pair the first discovered device and attach it to the socket
+            const dev = discovery.data.devices[0];
+            const pairRes = await api.pairDevice(dev.deviceId, socketName.trim() || undefined);
+            if (!pairRes.error && pairRes.data?.device) {
+              const sensorIds = [pairRes.data.device.id];
+              response = await api.createSocket(socketName.trim(), location.trim() || undefined, sensorIds);
+            }
+          }
+        } catch (err) {
+          console.error('Discovery/pair before create socket failed:', err);
+        }
+      }
 
       if (response.error) {
-        Alert.alert('Save Failed', response.message || 'Failed to save socket');
+        // Provide a clearer message to the user when sensors are missing
+        Alert.alert('Save Failed', response.message || 'Failed to save socket. Please add or pair a sensor first (use the Add ESP32 flow).');
         return;
       }
 
